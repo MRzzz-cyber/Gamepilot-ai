@@ -122,13 +122,17 @@ function resolveGame(query,filters={}){
  if(!known&&typeof filters.game==='string'&&filters.game.trim().length>=2)return {name:filters.game.trim(),aliases:[filters.game.trim()],server:false,universal:true};
  if(known)return known;
  const text=String(query||'').trim();
- const quoted=text.match(/[《「]([^》」]{2,36})[》」]\s*(?:的)?\s*(?:账号|帐号|游戏号|成品号)/u);
- const unquoted=text.match(/(?:找|购买|买|搜索|求购|想要|需要|看看|推荐)\s*(?:一个|一款|一些|个)?\s*([\p{Script=Han}A-Za-z0-9][\p{Script=Han}A-Za-z0-9·._ -]{1,35}?)\s*(?:游戏)?(?:的)?\s*(?:账号|帐号|游戏号|成品号)/u);
- const m=quoted||unquoted;
- if(!m)return null;
- const name=m[1].trim().replace(/^(?:一个|一款|一些|个)/,'').replace(/(?:国服|台服|国际服|苹果QQ|安卓QQ)$/,'').trim();
- if(name.length<2||/^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(name))return null;
- return {name,aliases:[name],server:false,universal:true};
+ const quoted=text.match(/[《「]([^》」]{2,36})[》」]/u);
+ let clean=text.replace(/(?:预算|价格|不超过|低于|最多|上限)?\s*[¥￥]?\s*\d{2,7}\s*(?:元|块)?\s*(?:以内|以下|左右|上下)?\s*(?:的)?/g,' ')
+  .replace(/(?:账号|帐号|游戏号|成品号|游戏账号|账户|号)\s*(?:推荐|出售|交易|购买)?\s*$/,'')
+  .trim();
+ // Strip repeated conversational prefixes after removing the budget.
+ clean=clean.replace(/^(?:(?:请|麻烦|可以|能不能|帮我|给我|我想|我需要|我要|想要|需要|推荐|搜索|找|买|购买|看看|求购|一下|一个|一些|个|便宜的|合适的|的)\s*)+/,'').trim();
+ clean=clean.replace(/^(?:的\s*)+/,'').replace(/(?:游戏|的)\s*$/,'').trim();
+ if(quoted)clean=quoted[1].trim();
+ if(!/(?:账号|帐号|游戏号|成品号|账户|买号)/.test(text)&&!quoted)return null;
+ if(clean.length<2||clean.length>35||/\d{2,7}\s*(?:元|块)|^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(clean))return null;
+ return {name:clean,aliases:[clean],server:false,universal:true};
 }
 function gameMatches(text,game){const t=String(text||'').toLowerCase();return game.aliases.some(a=>t.includes(a.toLowerCase()))}
 // Title is the listing identity; descriptions may include unrelated SEO recommendations.
