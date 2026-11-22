@@ -621,7 +621,7 @@ async function agentSearchListings(query,args,env){
  const native5173=discovery.trace.find(t=>t.tool==='browser_native_5173')||null;
  if(native5173)stages.push({stage:'native_5173',count:native5173.result?.detail_pages||0,status:native5173.result?.status||'unknown'});
  const enriched=await enrichCandidates(discovery.candidates,env,discovery.trace);
- stages.push({stage:'verify_details',count:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length});
+ stages.push({stage:'verify_details',count:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,pending_count:enriched.filter(x=>x.detail_check==='not_checked').length,batch_limit:15});
  const browserSummary=discovery.trace.findLast(t=>t.tool==='browser_render_summary')?.result||{configured:false,attempted:0,recovered_prices:0};
  stages.push({stage:'browser_render',count:browserSummary.attempted,priced:browserSummary.recovered_prices,configured:browserSummary.configured});
  // Preserve unknown-edition leads for diagnostics; do not silently treat CN accounts as TMS/GMS.
