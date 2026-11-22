@@ -59,7 +59,7 @@ function isStaleListing(updatedAt,days=180){return !!updatedAt&&Date.now()-Date.
 async function browserRenderListing(raw,env){
  const start=Date.now();
  let u;try{u=new URL(raw)}catch{return {ok:false,reason:'invalid_url',duration_ms:0}}
- const domain=u.hostname.replace(/^www\./,'');
+ const domain=u.hostname.endsWith('.5173.com')||u.hostname==='5173.com'?'5173.com':u.hostname.replace(/^www\./,'');
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port||
     !['5173.com','gmmsj.com'].includes(domain)||!isProductPage(u,domain))
   return {ok:false,reason:'unsupported_listing_url',duration_ms:0};
@@ -111,7 +111,8 @@ async function enrichCandidates(candidates,env,trace=[]){
  // At most two Browser Run sessions per search; prioritize price gaps from the marketplaces.
  // Static HTML remains primary, keeping a fast path for the majority of requests.
  const renderingCandidates=queue.filter(x=>{
-  const domain=new URL(x.url).hostname.replace(/^www\./,'');
+  const hostname=new URL(x.url).hostname;
+  const domain=hostname.endsWith('.5173.com')||hostname==='5173.com'?'5173.com':hostname.replace(/^www\./,'');
   const result=checks.get(x.url);
   return ['5173.com','gmmsj.com'].includes(domain)&&result&&!['sold','stale','wrong_game'].includes(result.status)&&
    (result.price==null||result.http_status!=null);
