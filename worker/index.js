@@ -110,6 +110,19 @@ const GAME_CATALOG=[
  {name:'逆水寒',aliases:['逆水寒'],terms:['账号','角色','装备'],server:false}
 ];
 function detectGame(q){const text=String(q||'').toLowerCase();return GAME_CATALOG.find(g=>g.aliases.some(a=>text.includes(a.toLowerCase())))||null}
+// Universal fallback: extract a game title from an explicit purchase request.
+// No fabricated catalog entries; ambiguous messages still require clarification.
+function resolveGame(query,filters={}){
+ const known=detectGame(query)||GAME_CATALOG.find(g=>g.name===filters.game);
+ if(known)return known;
+ const text=String(query||'').trim();
+ const m=text.match(/(?:找|购买|买|搜索|求购|想要|需要|看看|推荐)\\s*(?:一个|一款|一些|个)?\\s*[《「]?([\\p{Script=Han}A-Za-z0-9][\\p{Script=Han}A-Za-z0-9·._ -]{1,35}?)[》」]?\\s*(?:游戏)?(?:的)?\\s*(?:账号|帐号|游戏号|成品号)/u)
+  ||text.match(/[《「]([^》」]{2,36})[》」]\\s*(?:账号|帐号|游戏号|成品号)/u);
+ if(!m)return null;
+ const name=m[1].trim().replace(/^(?:元以内|预算|国服|台服|国际服)/,'').trim();
+ if(name.length<2||/^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(name))return null;
+ return {name,aliases:[name],server:false,universal:true};
+}
 function gameMatches(text,game){const t=String(text||'').toLowerCase();return game.aliases.some(a=>t.includes(a.toLowerCase()))}
 // Title is the listing identity; descriptions may include unrelated SEO recommendations.
 const GAME_EXCLUSION_MARKERS=[
@@ -186,27 +199,17 @@ function evaluateCandidate(x,req){
  return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
 }
 function searchPlans(game,filters){
- const budget=Math.max(1,Number(filters.max_price)||1000);
- const server=game.server&&filters.server!=='all'?filters.server:'';
- const edition=game.name==='冒险岛'?({'国际服':'冒险岛 国际服 GMS','台服／枫之谷':'枫之谷 台服 TMS','手游版':'冒险岛M','国服':'冒险岛 国服'}[filters.version]||game.name):game.name;
- const focused=game.name==='王者荣耀'
-  ? [game.name+' '+(server||'苹果QQ')+' 账号',game.name+' '+(server||'苹果QQ')+' 皮肤',game.name+' '+(server||'苹果QQ')+' 二次实名']
-  : game.name==='冒险岛'
-  ? [edition+' 成品号',edition+' 账号 出售',edition+' '+(filters.profession||'角色')+' 账号']
-  : [game.name+' 成品号',game.name+' 账号 售价',game.name+' 角色 出售'];
- return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>{
-  const detailPath=d.host==='pzds.com'?'inurl:goodsDetails':d.host==='gmmsj.com'?'inurl:detail_':'';
-  // Query broad product discovery first; a game+platform+edition+budget query is often too restrictive.
-  const terms=[
-   game.name+' 账号',
-   edition+' '+(server||'账号'),
-   focused[0],
-   focused[1],
-   detailPath+' '+game.name,
-   game.name+' '+(server||'账号')+' 出售'
-  ];
-  return [...new Set(terms.map(x=>x.trim()))].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i}));
- });
+ const edition=String(filters.version||'').trim();
+ const server=filters.server&&filters.server!=='all'?filters.server:'';
+ const profession=String(filters.profession||'').trim();
+ const core=[game.name,edition].filter(Boolean).join(' ');
+ const terms=[
+  core+' 账号 出售',core+' 成品号 价格',core+' 账号',
+  [core,server,'账号'].filter(Boolean).join(' '),
+  [core,profession,'账号'].filter(Boolean).join(' '),
+  core+' 商品详情'
+ ];
+ return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>[...new Set(terms)].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\/detail_[a-z0-9]+\.shtml$/i.test(p);if(domain==='5173.com')return (/(?:goods?|product|detail|item|sale|buy|account|game)/i.test(p)&&p.split('/').filter(Boolean).length>=2)||/\/(?:[a-z0-9_-]+\/){2,}[a-z0-9_-]{8,}(?:\.html?)?$/i.test(p);return false}
@@ -260,10 +263,10 @@ async function gmmsjCategoryLeads(game,filters){
 }
 async function discover(query,filters,env){
  // Public category feeds can still discover leads when Brave is missing or rate-limited.
- const trace=[],results=new Map(),game=detectGame(query),server=game?.server&&filters.server!=='all'?filters.server:'';
+ const trace=[],results=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'detect_game',result:{error:'unsupported_game',supported:GAME_CATALOG.map(g=>g.name)}}],reason:'unsupported_game',message:'暂未识别游戏名称，请输入王者荣耀、冒险岛、原神等游戏名称'};
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
- const feed=await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
+ const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
  const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
  const plans=[];for(let i=0;i<6;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
@@ -276,7 +279,7 @@ async function discover(query,filters,env){
     if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href)){duplicateRejected++;continue}
-    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname)){genericRejected++;continue}if(d.host==='gmmsj.com'&&!gameMatches(full,game))continue;
+    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname)){genericRejected++;continue}if(d.host==='gmmsj.com'&&!gameMatches(full,game)&&!game.universal)continue;
     if(game.name==='冒险岛'&&!mapleEditionMatches(title,filters.version||null)){genericRejected++;continue}const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const rawPrice=extractPrice(title);const price=rawPrice!=null&&rawPrice<10?null:rawPrice;if(price!=null)priced++;const skins=Number(title.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
@@ -324,7 +327,7 @@ async function agentReview(query,candidates,filters,env,model){
 }
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
-function parse(q){const game=detectGame(q);const server=game?.server?(q.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||'all'):'all';const budget=q.match(/(\d{2,6})\s*(?:元|块|预算|以内)/)?.[1];return {game:game?.name||null,server,max_price:budget?Number(budget):1000,realname:/可二次实名|支持二次实名/.test(q)?'yes':'all',sort:/皮肤/.test(q)?'skins':'fit',source:'all'}}
+function parse(q){const game=resolveGame(q);const server=game?.server?(q.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||'all'):'all';const budget=q.match(/(\d{2,6})\s*(?:元|块|预算|以内)/)?.[1];return {game:game?.name||null,server,max_price:budget?Number(budget):1000,realname:/可二次实名|支持二次实名/.test(q)?'yes':'all',sort:/皮肤/.test(q)?'skins':'fit',source:'all'}}
 function search(filters={}){const f={server:'all',max_price:1000,realname:'all',sort:'fit',source:'all',...filters};const max=Number(f.max_price);let items=inventory.filter(x=>(f.server==='all'||x.server===f.server)&&(!Number.isFinite(max)||max<=0||x.price<=max)&&(f.realname==='all'||x.realname===(f.realname==='yes'))&&(f.source==='all'||x.kind===f.source));items.sort((a,b)=>f.sort==='low'?a.price-b.price:f.sort==='skins'?b.skins-a.skins:b.skins/b.price-a.skins/a.price);return items}
 function execute(name,args){if(name==='search_listings')return {items:search(args),note:'未接入授权实时库存，禁止推荐历史或模拟商品'};if(name==='compare_prices'){const ids=Array.isArray(args.ids)?args.ids:[];return ids.map(id=>{const x=inventory.find(v=>v.id===id);return x?{id,platform:x.platform,listed_price_cny:x.price,required_fees:'unknown',final_price:'unknown',source:x.source}: {id,error:'商品不存在'}})}if(name==='check_risks'){const ids=Array.isArray(args.ids)?args.ids:[];return ids.map(id=>{const x=inventory.find(v=>v.id===id);return x?{id,realname_changeable:x.realname,fees:'unknown',status:'not_live_verified',warning:'账号归属、交易保障和找回风险需在源站核验'}:{id,error:'商品不存在'}})}return {error:'未知工具'}}
 const tools=[{type:'function',function:{name:'search_listings',description:'自动通过配置的搜索服务发现盼之、5173、G买卖的公开商品索引；候选未核验在售，不能作为可购买推荐',parameters:{type:'object',properties:{server:{type:'string',enum:['all','安卓QQ','苹果QQ','安卓微信']},max_price:{type:'number'},realname:{type:'string',enum:['all','yes','no']},sort:{type:'string',enum:['fit','low','skins']},source:{type:'string',enum:['all','public','demo']}},required:[]}}},{type:'function',function:{name:'compare_prices',description:'比较挂牌参考价并明确未知服务费',parameters:{type:'object',properties:{ids:{type:'array',items:{type:'string'}}},required:['ids']}}},{type:'function',function:{name:'check_risks',description:'检查实名与未核验交易风险',parameters:{type:'object',properties:{ids:{type:'array',items:{type:'string'}}},required:['ids']}}}];
@@ -360,7 +363,7 @@ function clarifyGeneralGame(message,context={}){
 }
 // Shared evidence-grounded listing pipeline for chat tool calls.
 async function agentSearchListings(query,args,env){
- const parsed=parse(query),game=detectGame(query);
+ const parsed=parse(query),game=resolveGame(query,args);
  const filters={...parsed,...args,version:args?.version||String(query).match(/(?:手游版|国际服|台服／枫之谷|国服)/)?.[0]||null,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
  const discovery=await discover(query,filters,env);
  const enriched=await enrichCandidates(discovery.candidates);
