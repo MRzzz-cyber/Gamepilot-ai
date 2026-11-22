@@ -61,3 +61,23 @@ jobs:
             }catch(e){console.log('CATEGORY_ERROR '+url+' '+String(e?.message||e))}
           }
           NODE
+
+
+      - name: Inspect official 王者荣耀 page and detail extraction
+        run: |
+          node --input-type=module <<'NODE'
+          const {readFileSync}=await import('node:fs');
+          const src=readFileSync('worker/index.js','utf8');
+          const lib=new Function('fetch','URL','Response','AbortSignal',src.replace('export default {','const worker = {')+';return {verifyListing,extractDetailPrice,visibleDetailPrice,extractListingAttributes}')(fetch,URL,Response,AbortSignal);
+          const url='https://www.pzds.com/goodsList/7/6';
+          const res=await fetch(url,{headers:{'Accept':'text/html','User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(12000)});
+          const html=(await res.text()).slice(0,1000000);
+          const tags=[...html.matchAll(/href=["']([^"']*\/goodsDetails\/[A-Za-z0-9]+\/6[^"']*)["']/g)];
+          const first=tags.slice(0,4).map(m=>({url:m[1],before:html.slice(Math.max(0,m.index-320),m.index).replace(/\s+/g,' ').slice(0,400),after:html.slice(m.index,m.index+1000).replace(/\s+/g,' ').slice(0,1000)}));
+          console.log('KING_LIST '+JSON.stringify({status:res.status,bytes:html.length,title:html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1],links:tags.length,first,priceText:html.match(/<span[^>]*class="[^"]*price-text[^"]*"[^>]*>[\s\S]{0,100}<\/span>/i)?.[0]}));
+          for(const id of ['C8YDZP','C8UCZH']){
+            const u='https://www.pzds.com/goodsDetails/'+id+'/6';
+            const x=await lib.verifyListing(u);
+            console.log('KING_DETAIL '+JSON.stringify({id,status:x.status,game:x.detail_game,price:x.price,price_evidence:x.price_evidence,title:x.page_title,attributes:x.detail_attributes,fetch_error:x.fetch_error,http_status:x.http_status}));
+          }
+          NODE
