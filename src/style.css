@@ -63,3 +63,10 @@
 .executionFootnote{font-size:10px;color:#698796;line-height:1.6;margin-top:18px}
 @media(max-width:1250px){.executionAside{grid-column:1/-1}.executionFlow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.executionStep{min-height:52px}.executionStep:before{display:none}}
 @media(max-width:800px){.executionFlow{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:1fr}.executionAside{padding:22px 16px}}
+
+/* Explicit discovery funnel separates market index hits from product recommendations. */
+.auditSummaryGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:13px}
+.auditSummaryGrid>div{border:1px solid #2a4756;background:#122b39;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.auditSummaryGrid small{font-size:11px;color:#92b6c3}
+.auditSummaryGrid strong{font-size:22px;line-height:1.2;font-weight:750;color:#e2f4f6}
+@media(max-width:640px){.auditSummaryGrid{grid-template-columns:1fr 1fr}.auditSummaryGrid>div{padding:10px}}
