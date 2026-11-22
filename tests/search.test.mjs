@@ -362,3 +362,18 @@ test('G买卖 已下架 detail is excluded even if historical price exists',()=>
  const r=gmmsjDetail('<div>商品编号：1234567890 浏览量（12） 收藏量（） 已下架 保障类型: 无 商品类别: 账号 ¥1500.00 猜你喜欢</div>');
  assert.equal(r.status,'sold');
 });
+
+
+test('G买卖冒险岛真实标题优先于隐藏编辑表单的「游戏名称 商品分类」',async()=>{
+ const url='https://www.gmmsj.com/dy/5_zh/detail_00005000000017951759544860003785.shtml';
+ const html='<html><head><title>冒险岛账号交易平台-G买卖- 夜光法师 290级</title></head><body>'+
+  '<div>商品编号：4860003785 发布时间：2026-11-22 23:47:37 <h1>[夜光法师 290级]1.5亿战力</h1> 浏览量（167） 收藏量（） 出售中 游戏区服：风之大陆（电信）-威尔 保障类型：已购买保障服务 商品类别：账号转卖</div>'+
+  '<p class="price"><i>¥</i>1700.00</p><div>猜你喜欢</div><div>商品留言</div>'+
+  '<form>商品信息填写 游戏名称： 商品分类 游戏区服：商品分类</form></body></html>';
+ const api=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {verifyListing}')(
+  async()=>new Response(html,{status:200,headers:{'Content-Type':'text/html'}}),URL,Response,AbortSignal);
+ const detail=await api.verifyListing(url);
+ assert.equal(detail.detail_game,'冒险岛');
+ assert.equal(detail.price,1700);
+ assert.equal(detail.status,'listed');
+});
