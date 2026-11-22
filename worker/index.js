@@ -219,17 +219,16 @@ function evaluateCandidate(x,req){
  return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
 }
 function searchPlans(game,filters){
- const edition=String(filters.version||'').trim();
- const server=filters.server&&filters.server!=='all'?filters.server:'';
- const profession=String(filters.profession||'').trim();
- const core=[game.name,edition].filter(Boolean).join(' ');
+ const version=String(filters.version||'').trim(),server=filters.server&&filters.server!=='all'?String(filters.server):'',profession=String(filters.profession||'').trim();
+ const core=[game.name,version].filter(Boolean).join(' ');
+ // Target individual sale pages, never generic SEO landing pages or recommendation feeds.
  const terms=[
-  core+' 账号 出售',core+' 成品号 价格',core+' 账号',
-  [core,server,'账号'].filter(Boolean).join(' '),
-  [core,profession,'账号'].filter(Boolean).join(' '),
-  core+' 商品详情'
+  [core,server,profession,'账号','出售'].filter(Boolean).join(' '),
+  [core,server,'账号','售价'].filter(Boolean).join(' '),
+  [core,profession,'成品号','价格'].filter(Boolean).join(' '),
+  [core,'商品编号','售价'].filter(Boolean).join(' ')
  ];
- return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>[...new Set(terms)].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
+ return SEARCH_DOMAINS.flatMap(d=>[...new Set(terms)].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\/detail_[a-z0-9]+\.shtml$/i.test(p);if(domain==='5173.com')return (/(?:goods?|product|detail|item|sale|buy|account|game)/i.test(p)&&p.split('/').filter(Boolean).length>=2)||/\/(?:[a-z0-9_-]+\/){2,}[a-z0-9_-]{8,}(?:\.html?)?$/i.test(p);return false}
@@ -288,7 +287,7 @@ async function discover(query,filters,env){
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
  const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
- const plans=[];for(let i=0;i<6;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
+ const plans=[];for(let i=0;i<4;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
   const t=Date.now();try{
    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
