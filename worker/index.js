@@ -430,7 +430,7 @@ function gmmsjCardEvidence(html,linkIndex,productId){
   if(unique.length!==1)continue;
   // Never extract prices from a card marked sold.
   if(/(?:已出售|已售出|已下架|已卖出|已售罄)/.test(plain))continue;
-  const title=plain.match(/(?:账号|帐号)\s*([\[【][^\]】]{2,45}[\]】][\s\S]{4,145}?)(?=\s*(?:可用优惠券|商品类型|游戏区服|[¥￥]|查看详情|立即购买))/u)?.[1]?.trim().slice(0,125)||null;
+  const title=plain.match(/(?:账号|帐号)\s*([\[【][^\]】]{2,45}[\]】][\s\S]{4,145}?)(?=\s*(?:可用优惠券|商品类型|游戏区服|[¥￥]|查看详情|立即购买))/u)?.[1]?.replace(/\s*(?:可用优惠券|可领优惠券|商品类型).*$/u,'').trim().slice(0,125)||null;
   const server=plain.match(/(?:冒险岛[-－])?((?:风|光|云|水|火|雷)之大陆（?(?:电信|网通)）?\s*[-－]\s*[\p{Script=Han}A-Za-z0-9]{2,20})/u)?.[1]||null;
   return {price:unique[0],title,server};
  }
