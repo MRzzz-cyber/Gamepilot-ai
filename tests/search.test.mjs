@@ -13,7 +13,7 @@ function runtime(){
   if(url.hostname==='api.search.brave.com'){
    const q=url.searchParams.get('q')||'';calls.push(q);
    // One Brave request now searches all three trusted domains via OR operators.
-   const hosts=[...q.matchAll(/site:([^\\s)]+)/g)].map(m=>m[1]);
+   const hosts=[...q.matchAll(/site:([^\s)]+)/g)].flatMap(m=>m[1]==='gmmsj.com'?['gmmsj.com/h5/goods/detail','gmmsj.com/dy','gmmsj.com']:m[1]==='5173.com'?['shop.5173.com','s.5173.com','5173.com']:[m[1]]);
    const game=q.includes('目录测试')?'目录测试':q.includes('浏览器测试')?'浏览器测试':q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
    const matches=[];
    for(const host of hosts){
