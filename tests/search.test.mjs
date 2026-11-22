@@ -26,6 +26,7 @@ function runtime(){
   if(url.hostname==='www.gmmsj.com'&&url.searchParams.get('book_id')==='12345678901234567')return new Response('Forbidden',{status:403});
   if(url.hostname==='www.gmmsj.com'&&url.pathname.includes('detail_9999999999999.shtml'))return new Response('<html><title>目录测试账号 商品详情</title><body>商品详情 ￥450.00 库存 1 账号 编号 9999999999999 游戏名称 目录测试 账号正常</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   if(url.hostname==='www.gmmsj.com')return new Response('<html><title>G买卖-商品详情</title><body>商品详情 可领优惠券 ￥10 ￥280.00 库存 1 账号 编号 4470004765 游戏名称 青空测试 游戏区 演示区</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
+  if(url.hostname==='www.pzds.com'&&url.pathname.includes('KINGTEST'))return new Response('<html><title>王者荣耀高皮肤账号</title><body>商品编号 KINGTEST 商品售价 ¥899 游戏区服 王者荣耀-苹果QQ 贵族等级 贵族1 皮肤数306 英雄128 〖段位〗荣耀黄金 实名情况 可二次实名 商品描述 〖英雄数量〗128 〖皮肤数量〗306 苹果QQ成品账号可以交易交易流程</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   if(url.hostname==='www.pzds.com'){
    if(url.pathname.includes('BAD123'))return new Response('Access denied',{status:403});
    const game=url.pathname.includes('DEMO')?'七条测试':url.pathname.includes('GEN')?'原神':url.pathname.includes('NOP')?'没价':'三角洲';
@@ -209,4 +210,38 @@ test('5173 adapter accepts stable detail IDs, rejects search pages and never fab
  assert.equal(isProductPage(new URL('https://s.5173.com/search/abcdef123456'),'5173.com'),false);
  assert.equal(isProductPage(new URL('https://shop.5173.com/checkout/123456789012'),'5173.com'),false);
  assert.equal(isProductPage(new URL('https://shop.5173.com/'),'5173.com'),false);
+});
+
+test('on-demand verification reads actual 王者荣耀 product attributes and distinguishes 苹果区 from 苹果QQ',async()=>{
+ const {worker}=runtime();
+ const url='https://www.pzds.com/goodsDetails/KINGTEST/6';
+ const apple=await post(worker,'/api/verify-lead',{url,game:'王者荣耀',max_price:1000,server:'苹果区'});
+ assert.equal(apple.status,200);
+ assert.equal(apple.data.detail_game,'王者荣耀');
+ assert.equal(apple.data.game_match,true);
+ assert.equal(apple.data.price,899);
+ assert.equal(apple.data.attributes.server,'苹果QQ');
+ assert.equal(apple.data.attributes.skins,306);
+ assert.equal(apple.data.attributes.heroes,128);
+ assert.equal(apple.data.attributes.realname,true);
+ assert.equal(apple.data.attributes.rank,'荣耀黄金');
+ assert.equal(apple.data.server_match,true);
+ assert.equal(apple.data.price_status,'price_found');
+ const android=await post(worker,'/api/verify-lead',{url,game:'王者荣耀',max_price:800,server:'安卓区'});
+ assert.equal(android.data.price_status,'over_budget');
+ assert.equal(android.data.server_match,false);
+ const blocked=await post(worker,'/api/verify-lead',{url:'https://evil.example/listing/123456789',game:'王者荣耀'});
+ assert.equal(blocked.status,400);
+});
+
+test('on-demand verification falls back to Browser Run for blocked G买卖 detail',async()=>{
+ const {worker}=runtime();
+ const BROWSER={quickAction:async()=>new Response('<html><title>G买卖-商品详情</title><body>商品详情 可领优惠券 ￥10 ￥280.00 库存 1 账号 编号 12345678901234567 游戏名称 浏览器测试 账号物品</body></html>',{status:200,headers:{'Content-Type':'text/html'}})};
+ const result=await post(worker,'/api/verify-lead',{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=12345678901234567',game:'浏览器测试',max_price:500},{BROWSER});
+ assert.equal(result.status,200);
+ assert.equal(result.data.price,280);
+ assert.equal(result.data.game_match,true);
+ assert.equal(result.data.price_status,'price_found');
+ assert.equal(result.data.steps[0].http_status,403);
+ assert.equal(result.data.steps[1].status,'rendered');
 });
