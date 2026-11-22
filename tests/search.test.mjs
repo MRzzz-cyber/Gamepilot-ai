@@ -403,3 +403,45 @@ test('G买卖官方 data-bookid 大型商品卡片提取真实价，忽略优惠
  assert.match(result.items[1].title,/剑豪/);
  assert.equal(result.items[0].price_evidence,'gmmsj_category_visible_price');
 });
+
+
+test('官方盼之王者荣耀列表在 Brave 402 时仍提取正确商品价格并严格筛选区服、实名',async()=>{
+ const card=(id,title,server,realname,amount)=>'<a href="/goodsDetails/'+id+'/6?from=official" title="'+title+'" data-track-click="goods" >'+
+  '<div class="newGoodsList_box"><div>商品 '+id+'</div><div>'+server+' '+realname+'</div>'+
+  '<div class="money"><span>¥</span><span>'+amount+'</span></div><span>已减311</span></div></a>';
+ const html='<html><head><title>王者荣耀游戏账号交易平台_王者荣耀账号购买-盼之账号</title></head><body>'+
+  card('KING1','皮肤数量311 英雄数量121 荣耀王者','苹果QQ','可二次实名','565')+
+  card('KING2','皮肤数量280 英雄数量111 荣耀黄金','苹果QQ','不可二次实名','735')+
+  card('KING3','皮肤数量250 英雄数量102 荣耀王者','安卓QQ','可二次实名','475')+
+  '</body></html>';
+ const calls=[];
+ const fakeFetch=async input=>{
+  const url=new URL(String(input));calls.push(url.href);
+  if(url.hostname==='api.search.brave.com')return new Response(JSON.stringify({error:{detail:'Prepaid credit balance is insufficient'}}),{status:402,headers:{'Content-Type':'application/json'}});
+  if(url.hostname==='www.pzds.com'&&url.pathname==='/goodsList/7/6')return new Response(html,{status:200,headers:{'Content-Type':'text/html'}});
+  if(url.hostname==='www.pzds.com'&&url.pathname.includes('/goodsDetails/'))return new Response('Forbidden',{status:403});
+  throw Error('Unexpected network call '+url.href);
+ };
+ const api=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {worker,pzdsCategoryLeads,pzdsCategoryCards}')(
+  fakeFetch,URL,Response,AbortSignal);
+ const feed=await api.pzdsCategoryLeads({name:'王者荣耀'},{});
+ assert.equal(feed.priced,3);
+ assert.deepEqual(feed.items.map(x=>x.price),[565,735,475]);
+ assert.equal(feed.items[0].server,'苹果QQ');
+ assert.equal(feed.items[0].realname,true);
+ assert.equal(feed.items[1].realname,false);
+ const res=await api.worker.fetch({url:'https://gamepilot.example/api/search',method:'POST',
+  json:async()=>({query:'1000元以内的王者荣耀苹果QQ账号，支持二次实名，皮肤越多越好',filters:{game:'王者荣耀',max_price:1000,server:'苹果QQ',realname:'yes'}})},{BRAVE_SEARCH_API_KEY:'test'});
+ const data=await res.json();
+ assert.equal(res.status,200);
+ assert.equal(data.candidates.length,1);
+ assert.equal(data.candidates[0].price,565);
+ assert.equal(data.candidates[0].server,'苹果QQ');
+ assert.equal(data.candidates[0].realname,true);
+ assert.equal(data.candidates[0].price_audit.source,'源站商品列表（非实时）');
+ assert.equal(data.excluded_leads.length,2);
+ assert.equal(data.coverage.platforms.find(x=>x.platform==='盼之账号').with_price,3);
+ assert.ok(data.trace.some(x=>x.tool==='pzds_category'&&x.result.priced===3));
+ assert.ok(data.trace.some(x=>x.tool==='discover_pzds.com'&&x.result.http_status===402));
+ assert.ok(calls.some(x=>x.includes('/goodsList/7/6')));
+});
