@@ -187,7 +187,7 @@ async function enrichCandidates(candidates,env,trace=[]){
   const detailVerified=v.price!=null&&v.status!=='sold'&&v.status!=='stale'&&!wrongGame;
   const priceConflict=detailVerified&&x.price!=null&&Math.abs(v.price-x.price)>0.01;
   const price=wrongGame||gameUnconfirmed||v.status==='stale'||v.status==='sold'?null:detailVerified?v.price:x.price;
-  return {...x,server:v.detail_attributes?.server||x.server,skins:v.detail_attributes?.skins??x.skins,heroes:v.detail_attributes?.heroes??x.heroes,realname:v.detail_attributes?.realname??x.realname,detail_attributes:v.detail_attributes||null,detail_summary:v.detail_attributes?.summary||null,detail_listing_id:v.detail_attributes?.listing_id||null,title:(v.detail_attributes?.title&&(/详情待核验|商品详情|源站商品详情/.test(x.title)||x.title.length<12))?v.detail_attributes.title:x.title,status:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,detail_http_status:v.http_status||null,detail_fetch_error:v.fetch_error||null,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':x.price_evidence==='gmmsj_category_visible_price'?'G买卖商品列表标价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
+  return {...x,server:v.detail_attributes?.server||x.server,skins:v.detail_attributes?.skins??x.skins,heroes:v.detail_attributes?.heroes??x.heroes,realname:v.detail_attributes?.realname??x.realname,detail_attributes:v.detail_attributes||null,detail_summary:v.detail_attributes?.summary||null,detail_listing_id:v.detail_attributes?.listing_id||null,title:(v.detail_attributes?.title&&(/详情待核验|商品详情|源站商品详情/.test(x.title)||x.title.length<12))?v.detail_attributes.title:x.title,status:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,detail_http_status:v.http_status||null,detail_fetch_error:v.fetch_error||null,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':x.price_evidence==='gmmsj_category_visible_price'?'G买卖商品列表标价（非实时）':x.price_evidence==='pzds_category_visible_price'?'盼之账号商品列表标价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
@@ -551,10 +551,61 @@ async function browserDiscoverCategory(category,game,env){
   return {items,status:items.length?'ok':'no_detail_links'};
  }catch(e){return {items:[],status:'render_failed',error_type:String(e?.name||'unknown').slice(0,40)}}
 }
+// Official 盼之账号 SSR listing feed. This is a discovery source, not an inventory guarantee.
+// King's category ID 7 is verified against the site's navigation; never guess IDs for other games.
+function pzdsCategoryCards(html,game){
+ const source=String(html||''),leads=new Map();
+ if(game?.name!=='王者荣耀')return [];
+ for(const a of source.matchAll(/<a\b[^>]*\bhref=["'](\/goodsDetails\/([a-z0-9_-]{4,24})\/6(?:\?[^"']*)?)["'][^>]*>/gi)){
+  const id=a[2].toUpperCase();
+  if(KNOWN_SOLD.has(id)||leads.has(id))continue;
+  const end=source.indexOf('</a>',a.index);
+  if(end<a.index||end-a.index>11000)continue;
+  const tag=a[0],raw=source.slice(a.index,end+4);
+  const plain=decodeEntities(raw.replace(/<!--[\s\S]*?-->/g,' ').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+  // Only the single product card's visible current price can be used. "已减" is not a price.
+  const amount=[...plain.matchAll(/[¥￥]\s*([1-9][\d,]{0,8}(?:\.\d{1,2})?)/g)]
+   .map(m=>Number(m[1].replace(/,/g,''))).filter(n=>n>=10&&n<=1000000);
+  const unique=[...new Set(amount)];
+  const price=unique.length===1?unique[0]:null;
+  const titleAttr=decodeEntities(tag.match(/\btitle=["']([^"']+)["']/i)?.[1]||'').trim();
+  const title=(titleAttr||plain.split(/(?:苹果QQ|苹果微信|安卓QQ|安卓微信)/)[0]||'').slice(0,165);
+  const server=plain.match(/苹果QQ|苹果微信|安卓QQ|安卓微信/)?.[0]||null;
+  const realname=/不可二次实名|不支持二次实名|不可二改/.test(plain)?false:/可二次实名|支持二次实名|可二改/.test(plain)?true:null;
+  const skins=Number((title+' '+plain).match(/皮肤(?:数量|数)?\s*(\d{2,4})/)?.[1])||null;
+  const heroes=Number((title+' '+plain).match(/英雄(?:数量|数)?\s*(\d{2,4})/)?.[1])||null;
+  leads.set(id,{id:'pzds.com:'+id,game:'王者荣耀',platform:'盼之账号',url:'https://www.pzds.com/goodsDetails/'+id+'/6',title:'王者荣耀 '+(title||'账号 '+id),description:'盼之账号王者荣耀官方商品列表 '+[server,realname===true?'可二次实名':realname===false?'不可二次实名':null].filter(Boolean).join(' '),server,price,price_evidence:price!=null?'pzds_category_visible_price':'unknown',price_source_label:price!=null?'盼之账号官方商品列表标价（非实时）':'列表未取到价格',status:'unverified',game_confirmed:true,identity_pending:false,skins,heroes,realname,verification:'公开官方王者荣耀分类页商品卡片；详情和在售状态仍需核验',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
+  if(leads.size>=50)break;
+ }
+ return [...leads.values()];
+}
+async function pzdsCategoryLeads(game,filters,htmlOverride=null){
+ if(game?.name!=='王者荣耀')return {items:[],diagnostic:'game_not_supported',priced:0};
+ const url='https://www.pzds.com/goodsList/7/6';
+ try{
+  let html;
+  if(htmlOverride!=null)html=String(htmlOverride);
+  else{
+   const res=await fetch(url,{signal:AbortSignal.timeout(9000),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
+   if(!res.ok)return {items:[],diagnostic:'http_'+res.status,priced:0};
+   html=await res.text();
+  }
+  if(/(?:人机验证|Access Denied|Just a moment|captcha)/i.test(html.slice(0,5000)))return {items:[],diagnostic:'source_challenge',priced:0};
+  // Validate category identity rather than trusting a game ID that may change.
+  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'');
+  if(!pageTitle.includes('王者荣耀')&&htmlOverride==null)return {items:[],diagnostic:'unexpected_category',priced:0};
+  const items=pzdsCategoryCards(html,game);
+  return {items,diagnostic:items.length?'ok':'no_product_cards',priced:items.filter(x=>x.price!=null).length};
+ }catch(e){return {items:[],diagnostic:String(e?.name||'fetch_failed').slice(0,50),priced:0}}
+}
 async function discover(query,filters,env,options={}){
  // Public category feeds can still discover leads when Brave is missing or rate-limited.
  const trace=[],results=new Map(),categoryPages=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'resolve_game',result:{error:'missing_game_name'}}],reason:'missing_game_name',message:'请提供具体游戏名称，例如「找鸣潮账号」'};
+ // Official first-party listing feeds recover priced products even when Brave indexing fails.
+ const pzds=await pzdsCategoryLeads(game,filters);
+ for(const item of pzds.items)results.set(item.url,item);
+ trace.push({tool:'pzds_category',result:{status:pzds.diagnostic,detail_pages:pzds.items.length,priced:pzds.priced}});
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);
  for(const item of feed.items)results.set(item.url,item);
@@ -739,7 +790,7 @@ async function agentSearchListings(query,args,env){
   .slice(0,20)
   .map(x=>{
    const detailPrice=/^(?:detail_|gmmsj_detail_)/.test(x.price_evidence||'');
-   const sourceLabel=detailPrice?'商品详情页':x.price_evidence==='gmmsj_category_visible_price'?'源站商品列表（非实时）':'搜索索引（非实时）';
+   const sourceLabel=detailPrice?'商品详情页':['gmmsj_category_visible_price','pzds_category_visible_price'].includes(x.price_evidence)?'源站商品列表（非实时）':'搜索索引（非实时）';
    const full=(x.title||'')+' '+(x.description||'');
    return {id:x.id,game:game.name,title:x.title,description:x.description,platform:x.platform,url:x.url,
     price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,detail_summary:x.detail_summary||null,detail_listing_id:x.detail_listing_id||null,
