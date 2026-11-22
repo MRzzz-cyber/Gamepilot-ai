@@ -26,9 +26,9 @@ async function discover(query,filters,env){
  const plans=SEARCH_DOMAINS.flatMap(d=>[d.host==='pzds.com'?'site:pzds.com/goodsDetails 王者荣耀 账号':'site:pxb7.com/seo/buy 王者荣耀 账号', 'site:'+d.host+' 王者荣耀 账号 '+(server||'苹果QQ')].map(q=>({d,q:q.trim()})));
  await Promise.all(plans.map(async({d,q})=>{
   const t=Date.now();try{
-   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('search_lang','zh');
+   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('search_lang','zh-hans');u.searchParams.set('country','CN');
    const r=await fetch(u,{headers:{Accept:'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8500)});
-   if(!r.ok){trace.push({tool:'discover_'+d.host,query:q,result:{http_status:r.status},duration_ms:Date.now()-t});return}
+   if(!r.ok){let detail='';try{const err=await r.json();detail=String(err?.error?.detail||err?.detail||'').slice(0,180);const fields=err?.error?.meta?.errors;if(Array.isArray(fields))detail+=' '+fields.map(x=>String(x.loc?.join('.')||'')+': '+String(x.msg||'')).join('; ').slice(0,220)}catch{}trace.push({tool:'discover_'+d.host,query:q,result:{http_status:r.status,error_detail:detail||'upstream_error'},duration_ms:Date.now()-t});return}
    const j=await r.json();let valid=0,hostMatched=0,productMatched=0,serverRejected=0,soldRejected=0;for(const hit of j.web?.results||[]){
     let link;try{link=new URL(hit.url)}catch{continue}
     if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
