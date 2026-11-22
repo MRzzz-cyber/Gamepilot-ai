@@ -9,6 +9,12 @@ function structuredOffers(html){
  for(const m of blocks){try{visit(JSON.parse(decodeEntities(m[1])))}catch{}}
  return offers;
 }
+function gmmsjDetail(html){
+ const body=decodeEntities(String(html||'').replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' '));
+ const status=/(?:浏览量|收藏量)[\\s\\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\\s\\S]{0,100}?出售中/.test(body)?'listed':'unverified';
+ const m=body.match(/(?:商品类别|角色性别|保障类型)[\\s\\S]{0,900}?[¥￥]\\s*([1-9]\\d{0,6}(?:\\.\\d{1,2})?)/);
+ return {status,price:m?Number(m[1]):null,price_evidence:m?'gmmsj_detail_visible_price':'unknown'};
+}
 function extractDetailPrice(html){
  const offers=structuredOffers(html);const c=offers.find(o=>!o.currency||o.currency==='CNY');if(c)return {price:c.price,price_evidence:'detail_structured',availability:c.availability};
  const meta=[...html.matchAll(/<meta\s+[^>]*>/gi)].map(x=>x[0]);for(const tag of meta){if(!/(?:product:price:amount|og:price:amount|itemprop=["']price)/i.test(tag))continue;const m=tag.match(/content=["']([0-9]+(?:\.[0-9]{1,2})?)["']/i);if(m&&Number(m[1])>0)return {price:Number(m[1]),price_evidence:'detail_meta',availability:null}}
@@ -25,11 +31,12 @@ async function verifyListing(raw){
  if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（可能需要移动端或登录）',http_status:r.status,source_url:u.href};
  const html=(await r.text()).slice(0,500000);
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
+ const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;
  const detail=extractDetailPrice(html);
  // Search only the page title and explicit structured availability for strong sold evidence.
- const sold=/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
- const live=/(?:InStock)$/i.test(detail.availability||'');
- return {status:sold?'sold':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',price:detail.price,price_evidence:detail.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
+ const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
+ const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
+ return {status:sold?'sold':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',price:gmmsj?.price??detail.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
  }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates){
@@ -136,7 +143,7 @@ async function discover(query,filters,env){
     if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href))continue;
-    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(isGenericPage(title,description,game))continue;
+    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(isGenericPage(title,description,game)&&d.host!=='gmmsj.com')continue;if(d.host==='gmmsj.com'&&!gameMatches(full,game))continue;
     const foundServer=game.server?(full.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const price=extractPrice(full);const skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
