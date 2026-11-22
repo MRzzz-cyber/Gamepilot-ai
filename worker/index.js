@@ -645,15 +645,32 @@ async function discover(query,filters,env,options={}){
  }
  const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
  if(!env.BRAVE_SEARCH_API_KEY)trace.push({tool:'search_configuration',result:{error:'BRAVE_SEARCH_API_KEY_missing',message:'搜索引擎未配置，无法检索国际服等非直连商品'}});
- const plans=[];const startIndex=options.retry?2:0,endIndex=options.retry?6:2;for(let i=startIndex;i<endIndex;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
- for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
+ // One paid search at most, not 18 requests per click. Prioritize priced official listings.
+ const qualified=[...results.values()].filter(x=>x.price!=null&&x.price<=(Number(filters.max_price)||1000)&&
+  (!server||x.server===server||(server==='苹果区'&&x.server?.startsWith('苹果'))||(server==='安卓区'&&x.server?.startsWith('安卓')))&&
+  (filters.realname!=='yes'||x.realname===true));
+ const skipBrave=options.disableBrave===true||qualified.length>=3;
+ const plans=[];
+ if(!skipBrave&&env.BRAVE_SEARCH_API_KEY)plans.push({q:[game.name,server&&server!=='all'?server:null,'账号','(site:pzds.com OR site:gmmsj.com OR site:5173.com)'].filter(Boolean).join(' '),offset:0});
+ trace.push({tool:'brave_cost_guard',result:{max_requests:1,max_results:10,official_qualified:qualified.length,skipped:skipBrave,reason:options.disableBrave?'disabled_for_acceptance':qualified.length>=3?'official_source_sufficient':null}});
+ for(let batch=0;batch<plans.length;batch++){await Promise.all(plans.slice(batch,batch+1).map(async({q,offset})=>{
   const t=Date.now();try{
-   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
-   const r=await fetch(u,{headers:{Accept:'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8500)});
-   if(!r.ok){let detail='';try{const err=await r.json();detail=String(err?.error?.detail||err?.detail||'').slice(0,180);const fields=err?.error?.meta?.errors;if(Array.isArray(fields))detail+=' '+fields.map(x=>String(x.loc?.join('.')||'')+': '+String(x.msg||'')).join('; ').slice(0,220)}catch{}trace.push({tool:'discover_'+d.host,query:q,result:{http_status:r.status,error_detail:detail||'upstream_error'},duration_ms:Date.now()-t});return}
+   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','10');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
+   const cacheKey=new Request('https://gamepilot-ai.zqsanjingshou.workers.dev/__brave-cache?v=1&q='+encodeURIComponent(q));
+   const cacheStore=typeof caches!=='undefined'?caches.default:null;
+   let r=null,fromCache=false;
+   if(cacheStore){try{r=await cacheStore.match(cacheKey);fromCache=!!r}catch{}}
+   if(!r){
+    r=await fetch(u,{headers:{Accept:'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8500)});
+    if(r.ok&&cacheStore){try{
+     await cacheStore.put(cacheKey,new Response(await r.clone().text(),{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=600'}}));
+    }catch{}}
+   }
+   if(!r.ok){let detail='';try{const err=await r.json();detail=String(err?.error?.detail||err?.detail||'').slice(0,180);const fields=err?.error?.meta?.errors;if(Array.isArray(fields))detail+=' '+fields.map(x=>String(x.loc?.join('.')||'')+': '+String(x.msg||'')).join('; ').slice(0,220)}catch{}trace.push({tool:'discover_brave',query:q,result:{http_status:r.status,error_detail:detail||'upstream_error',api_requests:fromCache?0:1,cached:fromCache,requested_results:10},duration_ms:Date.now()-t});return}
    const j=await r.json();let valid=0,hostMatched=0,productMatched=0,serverRejected=0,soldRejected=0,priced=0,genericRejected=0,duplicateRejected=0;for(const hit of j.web?.results||[]){
     let link;try{link=new URL(hit.url)}catch{continue}
-    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;
+    const d=SEARCH_DOMAINS.find(v=>link.hostname===v.host||link.hostname.endsWith('.'+v.host));
+    if(link.protocol!=='https:'||!d)continue;
     hostMatched++;
     if(!isProductPage(link,d.host)){
      const title=cleanText(hit.title),description=cleanText(hit.description);
@@ -677,8 +694,8 @@ async function discover(query,filters,env,options={}){
     const realname=/不可二次实名|不可二改|不支持二次实名/.test(title)?false:/可二次实名|支持二次实名|可二改/.test(title)?true:null;
     results.set(link.href,{id:d.host+':'+id,game:game.name,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',price_source_label:price===null?'价格未获取':'搜索索引参考价（非实时）',status:'unverified',game_confirmed:gameConfirmed,identity_pending:pendingIdentity,skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
    }
-   trace.push({tool:'discover_'+d.host,query:q,result:{raw_results:(j.web?.results||[]).length,host_matched:hostMatched,product_url_matched:productMatched,server_rejected:serverRejected,known_sold_rejected:soldRejected,generic_rejected:genericRejected,duplicate_rejected:duplicateRejected,priced_in_snippet:priced,detail_pages:valid},duration_ms:Date.now()-t});
-  }catch(e){trace.push({tool:'discover_'+d.host,query:q,result:{error:'timeout_or_network_error'},duration_ms:Date.now()-t})}
+   trace.push({tool:'discover_brave',query:q,result:{api_requests:fromCache?0:1,cached:fromCache,requested_results:10,raw_results:(j.web?.results||[]).length,host_matched:hostMatched,product_url_matched:productMatched,server_rejected:serverRejected,known_sold_rejected:soldRejected,generic_rejected:genericRejected,duplicate_rejected:duplicateRejected,priced_in_snippet:priced,detail_pages:valid},duration_ms:Date.now()-t});
+  }catch(e){trace.push({tool:'discover_brave',query:q,result:{error:'timeout_or_network_error',api_requests:1,cached:false,requested_results:10},duration_ms:Date.now()-t})}
  }));}
  if(typeof env?.BROWSER?.quickAction==='function'){
   // Render at most one indexed category per marketplace and only when it has no direct products.
@@ -768,17 +785,11 @@ function interpretIntent(message,context={}){
 function clarifyGameEdition(message,context={}){const game=resolveGame(message,context);return game?.name==='冒险岛'?interpretIntent(message,context):null}
 function clarifyGeneralGame(message,context={}){const game=resolveGame(message,context);return game?.name!=='冒险岛'?interpretIntent(message,context):null}
 // Shared evidence-grounded listing pipeline for chat tool calls.
-async function agentSearchListings(query,args,env){
+async function agentSearchListings(query,args,env,options={}){
  const parsed=parse(query),game=resolveGame(query,args);
  const filters={...parsed,...args,game:game?.name||parsed.game,version:null,requested_version:args?.version||String(query).match(/(?:手游版|国际服|台服／枫之谷|国服)/)?.[0]||null,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
- let discovery=await discover(query,filters,env);
- const stages=[{stage:'discover_primary',count:discovery.candidates.length,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length}];
- if((discovery.candidates.length===0||!discovery.candidates.some(x=>x.price!=null&&x.price<=filters.max_price))&&env.BRAVE_SEARCH_API_KEY&&!discovery.trace.some(t=>[402,429].includes(t.result?.http_status))){
-  const retry=await discover(query,filters,env,{retry:true});
-  const unique=new Map([...discovery.candidates,...retry.candidates].map(x=>[x.url,x]));
-  discovery={...discovery,candidates:[...unique.values()],trace:[...discovery.trace,...retry.trace]};
-  stages.push({stage:'discover_fallback',count:retry.candidates.length,requests:retry.trace.filter(t=>t.tool.startsWith('discover_')).length});
- }
+ let discovery=await discover(query,filters,env,options);
+ const stages=[{stage:'discover_primary',count:discovery.candidates.length,requests:discovery.trace.reduce((n,t)=>n+(t.result?.api_requests||0),0)}];
  const native5173=discovery.trace.find(t=>t.tool==='browser_native_5173')||null;
  if(native5173)stages.push({stage:'native_5173',count:native5173.result?.detail_pages||0,status:native5173.result?.status||'unknown'});
  const enriched=await enrichCandidates(discovery.candidates,env,discovery.trace);
@@ -875,7 +886,11 @@ async function agentSearchListings(query,args,env){
   excluded_leads:excludedLeads,
   audit_counts:{discovered:enriched.length,qualified:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}
  };
- const searchDiagnostics={...detailDiagnostics,filter_gate:pricingGate,browser:browserSummary,native_5173:native5173?.result||null,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
+ const searchDiagnostics={...detailDiagnostics,filter_gate:pricingGate,browser:browserSummary,native_5173:native5173?.result||null,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.reduce((n,t)=>n+(t.result?.api_requests||0),0),
+   brave:{requests:discovery.trace.reduce((n,t)=>n+(t.result?.api_requests||0),0),cache_hits:discovery.trace.filter(t=>t.tool==='discover_brave'&&t.result?.cached).length,max_requests:1,max_results:10,
+    estimated_cost_usd:Number((discovery.trace.filter(t=>t.tool==='discover_brave'&&t.result?.api_requests>0&&!t.result?.http_status&&!t.result?.error).length*0.005).toFixed(3)),
+    note:'按 Brave 官方 $5/1000 次估算，非账户实际扣款'},
+   upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
  return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,result_status:items.length?'matched':'no_matches',zero_result_reason:zeroReason,filter_gate:pricingGate,skill_flow:{schema:'gamepilot.skill-flow.v1',execution_mode:'deterministic-code',steps:skillFlow}},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
@@ -961,7 +976,7 @@ if(url.pathname==='/api/search'&&request.method==='POST'){
  const game=resolveGame(query,incoming);
  if(!game)return json({error:'请提供游戏名称',status:'needs_clarification',candidates:[]},400);
  const parsedFilters=parse(query);const filters={...parsedFilters,...incoming,game:game.name,server:incoming.server&&incoming.server!=='all'?incoming.server:parsedFilters.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsedFilters.realname};
- const result=await agentSearchListings(query,filters,env);
+ const result=await agentSearchListings(query,filters,env,{disableBrave:body.disable_brave===true});
  const candidates=result.items; // Canonical card schema is produced once by the Harness.
  return json({items:result.items,candidates,coverage:result.coverage,requirements:filters,filters,discovery_status:result.harness?.zero_result_reason||'searched',summary:candidates.length?'找到 '+candidates.length+' 条满足硬条件的有价线索，商品在售状态仍需源站核验。':({over_budget:'找到商品价格，但符合游戏身份的有价线索均超过预算。',identity_or_availability_unverified:'检索到商品价格，但没有可确认游戏身份及有效状态的推荐商品。',no_price_evidence:'发现商品详情线索，但尚未获得可信价格。',other_constraints_unmet:'有预算内线索，但其他硬条件未满足。'})[result.harness?.zero_result_reason]||'没有商品通过本次硬条件筛选；并不代表平台无货。',agent:{status:'harness',summary:'由 Progressive Search Harness 执行，不依赖 OpenRouter。'},trace:result.trace,harness:result.harness,search_diagnostics:result.search_diagnostics,discovered_count:result.discovered_count,priced_count:result.priced_count,unpriced_leads:result.unpriced_leads,excluded_leads:result.excluded_leads,lead_audit:result.lead_audit});
 }
