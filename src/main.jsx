@@ -26,6 +26,7 @@ function App(){
    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,model,requirements:requirementsState,history:chatHistory})});
    const d=await r.json();if(!r.ok)throw Error(d.error||'Agent 对话失败');
    setRequirementsState(d.requirements||requirementsState);setChatHistory(v=>[...v,{role:'assistant',content:d.answer||'已完成搜索'}]);setSuggestedReplies(d.suggested_replies||[]);
+   if(d.status==='needs_clarification'){setItems([]);setTrace([]);setCoverage(null);setSummary('正在确认关键需求，暂不展示旧商品');setQuery([d.requirements?.game,d.requirements?.version,d.requirements?.profession].filter(Boolean).join(' · '));if(d.requirements?.game)setGame(d.requirements.game)}
    if(d.status!=='needs_clarification'){setItems(d.items||[]);setTrace(d.trace||[]);setQuery(d.requirements?.game?[d.requirements.game,d.requirements.version,d.requirements.profession,d.requirements.max_price?'预算'+d.requirements.max_price+'元':''].filter(Boolean).join(' · '):message);setSummary(d.answer||'');setAnalysis(d.answer||'');setChosen([]);setCoverage(null);setStatus(d.status||'agent_search');if(d.requirements?.game)setGame(d.requirements.game);if(d.requirements?.max_price)setBudget(d.requirements.max_price)}
   }catch(e){setChatError(e.message);setChatHistory(v=>[...v,{role:'assistant',content:'请求失败：'+e.message}])}finally{setChatBusy(false)}
  }
