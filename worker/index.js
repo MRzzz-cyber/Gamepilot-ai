@@ -220,16 +220,22 @@ function evaluateCandidate(x,req){
  return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
 }
 function searchPlans(game,filters){
- const version=String(filters.version||'').trim(),server=filters.server&&filters.server!=='all'?String(filters.server):'',profession=String(filters.profession||'').trim();
- const core=[game.name,version].filter(Boolean).join(' ');
- // Target individual sale pages, never generic SEO landing pages or recommendation feeds.
- const terms=[
-  [core,server,profession,'账号','出售'].filter(Boolean).join(' '),
-  [core,server,'账号','售价'].filter(Boolean).join(' '),
-  [core,profession,'成品号','价格'].filter(Boolean).join(' '),
-  [core,'商品编号','售价'].filter(Boolean).join(' ')
- ];
- return SEARCH_DOMAINS.flatMap(d=>[...new Set(terms)].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
+ const version=String(filters.version||'').trim();
+ const server=filters.server&&filters.server!=='all'?String(filters.server):'';
+ const profession=String(filters.profession||'').trim();
+ const editions=version==='国际服'?['GMS','Global']:version==='台服／枫之谷'?['TMS','枫之谷']:version==='手游版'?['冒险岛M']:version?[version]:[];
+ const names=game.name==='冒险岛'?['MapleStory','冒险岛']:Array.from(new Set([game.name,...(game.aliases||[]).filter(x=>x.length>2)]));
+ // Progressive retrieval: start with identity + account, not all constraints in a single indexed query.
+ // Budget is verified against product evidence, never assumed to appear in search indexing.
+ const terms=[];
+ for(const name of names.slice(0,2)){
+  const core=[name,editions[0]||''].filter(Boolean).join(' ');
+  terms.push(core+' account sale',core+' 账号 出售');
+  if(editions[1])terms.push([name,editions[1],'账号'].join(' '));
+  if(server)terms.push([core,server,'账号'].join(' '));
+  if(profession)terms.push([core,profession,'账号'].join(' '));
+ }
+ return SEARCH_DOMAINS.flatMap(d=>[...new Set(terms)].slice(0,6).map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\/detail_[a-z0-9]+\.shtml$/i.test(p);if(domain==='5173.com')return (/(?:goods?|product|detail|item|sale|buy|account|game)/i.test(p)&&p.split('/').filter(Boolean).length>=2)||/\/(?:[a-z0-9_-]+\/){2,}[a-z0-9_-]{8,}(?:\.html?)?$/i.test(p);return false}
@@ -288,7 +294,8 @@ async function discover(query,filters,env){
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
  const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
- const plans=[];for(let i=0;i<4;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
+ if(!env.BRAVE_SEARCH_API_KEY)trace.push({tool:'search_configuration',result:{error:'BRAVE_SEARCH_API_KEY_missing',message:'搜索引擎未配置，无法检索国际服等非直连商品'}});
+ const plans=[];for(let i=0;i<6;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
   const t=Date.now();try{
    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
@@ -300,7 +307,7 @@ async function discover(query,filters,env){
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href)){duplicateRejected++;continue}
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname)){genericRejected++;continue}if(d.host==='gmmsj.com'&&!gameMatches(full,game)&&!game.universal)continue;
-    if(game.name==='冒险岛'&&filters.version&&!mapleEditionMatches(title+' '+description,filters.version)){genericRejected++;continue}const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
+    // Edition is validated after fetching detail evidence; do not discard indexed leads here.const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const rawPrice=extractPrice(title);const price=rawPrice!=null&&rawPrice<10?null:rawPrice;if(price!=null)priced++;const skins=Number(title.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(title.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
