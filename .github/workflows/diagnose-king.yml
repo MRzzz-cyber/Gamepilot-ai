@@ -98,3 +98,31 @@ jobs:
             console.log('ITEM '+JSON.stringify({url:x[1],bytes:item.length,plain,priceTags:prices,title:x[0].match(/title=["']([^"']*)["']/)?.[1]?.slice(0,120),server:plain.match(/苹果QQ|苹果微信|安卓QQ|安卓微信/)?.[0],realname:plain.match(/可二次实名|不可二次实名/)?.[0]}));
           }
           NODE
+
+
+      - name: Identify pzds category pagination and inexpensive products
+        run: |
+          node --input-type=module <<'NODE'
+          const variants=[
+            'https://www.pzds.com/goodsList/7/6',
+            'https://www.pzds.com/goodsList/7/6?page=2',
+            'https://www.pzds.com/goodsList/7/6?pageNum=2',
+            'https://www.pzds.com/goodsList/7/6?currentPage=2',
+            'https://www.pzds.com/goodsList/7/6?sortType=1',
+            'https://www.pzds.com/goodsList/7/6?minPrice=0&maxPrice=1000',
+          ];
+          for(const url of variants){
+           try{
+            const resp=await fetch(url,{headers:{Accept:'text/html','User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(13000)});
+            const html=(await resp.text()).slice(0,850000);
+            const cards=[...html.matchAll(/<a\b[^>]*href=["']\/goodsDetails\/([A-Za-z0-9]+)\/6[^"']*["'][^>]*>/g)];
+            const products=[];
+            for(const m of cards.slice(0,14)){
+              const end=html.indexOf('</a>',m.index);
+              const plain=html.slice(m.index,end).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,750);
+              products.push({id:m[1],price:plain.match(/[¥￥]\s*(\d+(?:\.\d{2})?)/)?.[1]||null,server:plain.match(/苹果QQ|苹果微信|安卓QQ|安卓微信/)?.[0],realname:/不可二次实名/.test(plain)?'no':/可二次实名/.test(plain)?'yes':null});
+            }
+            console.log('PAGE_PROBE '+JSON.stringify({url,status:resp.status,ids:products.map(x=>x.id),products,hasPagination:html.includes('pagination'),htmlLen:html.length}));
+           }catch(e){console.log('PAGE_ERROR '+url+' '+String(e?.message||e))}
+          }
+          NODE
