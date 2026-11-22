@@ -348,7 +348,7 @@ function clarifyGameEdition(message,context={}){
 }
 // Shared deterministic requirement extraction for games without edition clarification.
 function clarifyGeneralGame(message,context={}){
- const text=String(message||'');const game=detectGame(text)||GAME_CATALOG.find(g=>g.name===context.game);
+ const text=String(message||'');const game=resolveGame(text,context);
  if(!game||game.name==='冒险岛')return null;
  const explicit=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
  const bare=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);
