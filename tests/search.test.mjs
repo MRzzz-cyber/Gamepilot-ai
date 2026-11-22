@@ -13,8 +13,8 @@ function runtime(){
   if(url.hostname==='api.search.brave.com'){
    const q=url.searchParams.get('q')||'';calls.push(q);
    const host=q.match(/site:([^\s]+)/)?.[1];
-   const game=q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
-   const matches=host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game?[{
+   const game=q.includes('浏览器测试')?'浏览器测试':q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
+   const matches=host==='shop.5173.com'&&game==='浏览器测试'?[{url:'https://shop.5173.com/goods/123456789012',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='浏览器测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=12345678901234567',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game?[{
     url:'https://www.pzds.com/goodsDetails/'+({三角洲:'TRI123',原神:'GEN123',没价:'NOP123',阻断:'BAD123'}[game])+'/6',
     title:game+'游戏账号'+(game==='没价'||game==='阻断'?'':' 商品售价 ¥899'),
     description:'所属游戏：'+game
@@ -22,6 +22,8 @@ function runtime(){
    if(host==='pzds.com'&&game==='三角洲')matches.push({url:'https://www.pzds.com/goodsDetails/WRONG123/6',title:'原神账号 商品售价 ¥100',description:'猜你喜欢三角洲'});
    return new Response(JSON.stringify({web:{results:matches}}),{status:200,headers:{'Content-Type':'application/json'}});
   }
+  if(url.hostname==='shop.5173.com')return new Response('Access restricted',{status:403});
+  if(url.hostname==='www.gmmsj.com'&&url.searchParams.get('book_id')==='12345678901234567')return new Response('Forbidden',{status:403});
   if(url.hostname==='www.gmmsj.com')return new Response('<html><title>G买卖-商品详情</title><body>商品详情 可领优惠券 ￥10 ￥280.00 库存 1 账号 编号 4470004765 游戏名称 青空测试 游戏区 演示区</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   if(url.hostname==='www.pzds.com'){
    if(url.pathname.includes('BAD123'))return new Response('Access denied',{status:403});
@@ -33,8 +35,8 @@ function runtime(){
  };
  return {...factory(mockFetch,URL,Response,AbortSignal),calls};
 }
-async function post(worker,path,payload){
- const res=await worker.fetch({method:'POST',url:'https://gamepilot.example'+path,json:async()=>payload},{BRAVE_SEARCH_API_KEY:'test'});
+async function post(worker,path,payload,extraEnv={}){
+ const res=await worker.fetch({method:'POST',url:'https://gamepilot.example'+path,json:async()=>payload},{BRAVE_SEARCH_API_KEY:'test',...extraEnv});
  return {status:res.status,data:await res.json()};
 }
 
@@ -141,4 +143,36 @@ test('G买卖 indexed H5 detail with generic title is verified against actual ga
  assert.equal(response.data.candidates[0].price,280);
  assert.ok(response.data.candidates[0].url.includes('book_id='));
  assert.equal(response.data.candidates[0].price_evidence,'gmmsj_detail_visible_price');
+});
+
+test('Cloudflare Browser Run rescues 5173 and G买卖 prices only after plain HTTP is blocked',async()=>{
+ const {worker}=runtime();
+ const called=[];
+ const BROWSER={quickAction:async(action,options)=>{
+  assert.equal(action,'content');
+  called.push(options.url);
+  const html=options.url.includes('gmmsj.com')?'<html><title>浏览器测试账号 商品详情</title><body>商品详情 5折优惠券 ￥10 ￥280.00 库存 1 账号 编号 12345678901234567 游戏名称 浏览器测试 特价在售</body></html>':'<html><title>浏览器测试账号 商品详情</title><body>商品编号 123456789012 所属游戏：浏览器测试 商品售价 ¥590 本商品信息展示在账号交易平台详情页</body></html>';
+  return new Response(html,{status:200,headers:{'Content-Type':'text/html'}});
+ }};
+ const result=await post(worker,'/api/search',{query:'1000元以内的浏览器测试账号',filters:{}},{BROWSER});
+ assert.equal(result.status,200);
+ assert.equal(result.data.candidates.length,2);
+ assert.deepEqual(result.data.candidates.map(x=>x.price).sort((a,b)=>a-b),[280,590]);
+ assert.ok(result.data.candidates.every(x=>x.price_audit?.confidence==='medium'));
+ assert.equal(result.data.search_diagnostics.browser.configured,true);
+ assert.equal(result.data.search_diagnostics.browser.attempted,2);
+ assert.equal(result.data.search_diagnostics.browser.recovered_prices,2);
+ assert.equal(called.length,2);
+ assert.ok(called.some(x=>x.includes('shop.5173.com')));
+ assert.ok(called.some(x=>x.includes('gmmsj.com/h5/goods/detail')));
+});
+
+test('Browser Run is optional and does not fabricate prices when binding is missing',async()=>{
+ const {worker}=runtime();
+ const result=await post(worker,'/api/search',{query:'1000元以内的浏览器测试账号',filters:{}});
+ assert.equal(result.status,200);
+ assert.equal(result.data.candidates.length,0);
+ assert.equal(result.data.unpriced_leads.length,2);
+ assert.equal(result.data.search_diagnostics.browser.configured,false);
+ assert.equal(result.data.search_diagnostics.browser.reason,'browser_binding_missing');
 });
