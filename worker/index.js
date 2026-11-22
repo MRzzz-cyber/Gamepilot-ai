@@ -116,10 +116,11 @@ function resolveGame(query,filters={}){
  const known=detectGame(query)||GAME_CATALOG.find(g=>g.name===filters.game);
  if(known)return known;
  const text=String(query||'').trim();
- const m=text.match(/(?:找|购买|买|搜索|求购|想要|需要|看看|推荐)\\s*(?:一个|一款|一些|个)?\\s*[《「]?([\\p{Script=Han}A-Za-z0-9][\\p{Script=Han}A-Za-z0-9·._ -]{1,35}?)[》」]?\\s*(?:游戏)?(?:的)?\\s*(?:账号|帐号|游戏号|成品号)/u)
-  ||text.match(/[《「]([^》」]{2,36})[》」]\\s*(?:账号|帐号|游戏号|成品号)/u);
+ const quoted=text.match(/[《「]([^》」]{2,36})[》」]\\s*(?:的)?\\s*(?:账号|帐号|游戏号|成品号)/u);
+ const unquoted=text.match(/(?:找|购买|买|搜索|求购|想要|需要|看看|推荐)\\s*(?:一个|一款|一些|个)?\\s*([\\p{Script=Han}A-Za-z0-9][\\p{Script=Han}A-Za-z0-9·._ -]{1,35}?)\\s*(?:游戏)?(?:的)?\\s*(?:账号|帐号|游戏号|成品号)/u);
+ const m=quoted||unquoted;
  if(!m)return null;
- const name=m[1].trim().replace(/^(?:元以内|预算|国服|台服|国际服)/,'').trim();
+ const name=m[1].trim().replace(/^(?:一个|一款|一些|个)/,'').replace(/(?:国服|台服|国际服|苹果QQ|安卓QQ)$/,'').trim();
  if(name.length<2||/^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(name))return null;
  return {name,aliases:[name],server:false,universal:true};
 }
