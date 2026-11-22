@@ -12,7 +12,7 @@ function structuredOffers(html){
 function gmmsjDetail(html){
  const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
  const status=/(?:浏览量|收藏量)[\s\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
- const productContext=/(?:商品详情|编号\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
+ const productContext=/(?:商品详情|(?:商品编号|账号编号|编号)\s*[:：]?\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
  if(!productContext)return {status,price:null,price_evidence:'unknown'};
  const head=body.split(/(?:猜你喜欢|相似推荐|商品留言|交易流程)/)[0].slice(0,6000);
  // H5 header: coupon banners may show ¥10 before the actual "¥280.00 库存 1 账号".
