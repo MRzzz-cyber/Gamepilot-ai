@@ -84,8 +84,8 @@ async function enrichCandidates(candidates){
  // Round-robin across platforms so a single site's results cannot exhaust verification capacity.
  const byPlatform=new Map();for(const x of candidates){if(!byPlatform.has(x.platform))byPlatform.set(x.platform,[]);byPlatform.get(x.platform).push(x)}
  for(const xs of byPlatform.values())xs.sort((a,b)=>Number(a.price!=null)-Number(b.price!=null));
- const queue=[];while(queue.length<36){let added=false;for(const xs of byPlatform.values()){if(xs.length&&queue.length<36){queue.push(xs.shift());added=true}}if(!added)break}
- const checks=new Map();for(let i=0;i<queue.length;i+=6){const batch=queue.slice(i,i+6);const outcomes=await Promise.all(batch.map(x=>verifyListing(x.url)));batch.forEach((x,j)=>checks.set(x.url,outcomes[j]))}
+ const queue=[];while(queue.length<15){let added=false;for(const xs of byPlatform.values()){if(xs.length&&queue.length<15){queue.push(xs.shift());added=true}}if(!added)break}
+ const checks=new Map();for(let i=0;i<queue.length;i+=15){const batch=queue.slice(i,i+15);const outcomes=await Promise.all(batch.map(x=>verifyListing(x.url)));batch.forEach((x,j)=>checks.set(x.url,outcomes[j]))}
  return candidates.map(x=>{
   const v=checks.get(x.url);
   if(!v)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
@@ -426,9 +426,29 @@ async function agentSearchListings(query,args,env){
  const editionRejected=enriched.length-editionSafe.length;
  stages.push({stage:'edition_filter',count:editionSafe.length,rejected:editionRejected,skipped:true,reason:'demo_version_filter_disabled'});
  const req=game?requirements(query,filters,game):null;
- const items=editionSafe.filter(x=>x.game_confirmed||x.detail_game===x.game).map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.status!=='wrong_game'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null,version_label:filters.requested_version?'版本未核验（请求：'+filters.requested_version+'）':'版本未核验'}));
+ const items=editionSafe
+  .filter(x=>(x.game_confirmed||x.detail_game===game?.name)&&!['sold','stale','wrong_game','game_unconfirmed'].includes(x.status))
+  .map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null}))
+  .filter(x=>x.price!=null&&x.requirement_evaluation?.fit!=='rejected')
+  .sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0))
+  .slice(0,20)
+  .map(x=>{
+   const detailPrice=/^(?:detail_|gmmsj_)/.test(x.price_evidence||'');
+   const sourceLabel=detailPrice?'商品详情页':'搜索索引（非实时）';
+   const full=(x.title||'')+' '+(x.description||'');
+   return {id:x.id,game:game.name,title:x.title,description:x.description,platform:x.platform,url:x.url,
+    price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,
+    price_audit:{amount:x.price,currency:'CNY',source:sourceLabel,is_realtime:false,confidence:detailPrice?'medium':'low',verified_at:detailPrice?x.checked_at:null},
+    status:x.status,detail_check:x.detail_check,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,
+    match_score:x.requirement_evaluation?.score??x.match_score,requirement_evaluation:x.requirement_evaluation,
+    price_conflict:x.price_conflict||false,
+    key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,
+     profession:full.match(/(?:职业|职阶)\s*(?:[:：为是])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||null,
+     power:full.match(/(?:战斗力|战力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/u)?.[1]||null},
+    version_label:filters.requested_version?'用户要求'+filters.requested_version+' · 版本未核验':'版本未核验'};
+  });
  stages.push({stage:'hard_filter_and_rank',count:items.length});
- const detailDiagnostics={source_health:SEARCH_DOMAINS.map(d=>({platform:d.platform,domain:d.host,leads:discovery.candidates.filter(x=>x.platform===d.platform).length,priced:enriched.filter(x=>x.platform===d.platform&&x.price!=null).length,search_requests:discovery.trace.filter(x=>x.tool==='discover_'+d.host).length,search_http_errors:discovery.trace.filter(x=>x.tool==='discover_'+d.host&&x.result?.http_status&&x.result.http_status!==200).map(x=>x.result.http_status),detail_http_errors:enriched.filter(x=>x.platform===d.platform&&x.detail_http_status&&x.detail_http_status!==200).map(x=>x.detail_http_status),detail_network_errors:enriched.filter(x=>x.platform===d.platform&&x.detail_fetch_error).length})),http_errors:enriched.filter(x=>x.detail_http_status&&x.detail_http_status!==200).length,http_statuses:enriched.reduce((acc,x)=>{if(x.detail_http_status)acc[x.detail_http_status]=(acc[x.detail_http_status]||0)+1;return acc},{}),network_errors:enriched.filter(x=>x.detail_fetch_error).length,unpriced_leads:enriched.filter(x=>x.price==null).slice(0,12).map(x=>({platform:x.platform,title:x.title,url:x.url,detail_status:x.detail_check,http_status:x.detail_http_status,fetch_error:x.detail_fetch_error,reason:x.verification}))};
+ const detailDiagnostics={source_health:SEARCH_DOMAINS.map(d=>({platform:d.platform,domain:d.host,leads:discovery.candidates.filter(x=>x.platform===d.platform).length,priced:enriched.filter(x=>x.platform===d.platform&&x.price!=null).length,search_requests:discovery.trace.filter(x=>x.tool==='discover_'+d.host).length,search_http_errors:discovery.trace.filter(x=>x.tool==='discover_'+d.host&&x.result?.http_status&&x.result.http_status!==200).map(x=>x.result.http_status),detail_http_errors:enriched.filter(x=>x.platform===d.platform&&x.detail_http_status&&x.detail_http_status!==200).map(x=>x.detail_http_status),detail_network_errors:enriched.filter(x=>x.platform===d.platform&&x.detail_fetch_error).length})),http_errors:enriched.filter(x=>x.detail_http_status&&x.detail_http_status!==200).length,http_statuses:enriched.reduce((acc,x)=>{if(x.detail_http_status)acc[x.detail_http_status]=(acc[x.detail_http_status]||0)+1;return acc},{}),network_errors:enriched.filter(x=>x.detail_fetch_error).length,unpriced_leads:enriched.filter(x=>x.price==null&&x.game_confirmed&&(!x.detail_game||x.detail_game===game?.name)&&!['sold','stale','wrong_game','game_unconfirmed'].includes(x.status)).slice(0,12).map(x=>({platform:x.platform,title:x.title,url:x.url,detail_status:x.detail_check,http_status:x.detail_http_status,fetch_error:x.detail_fetch_error,reason:x.verification}))};
  const searchDiagnostics={...detailDiagnostics,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
  return {items,unpriced_leads:detailDiagnostics.unpriced_leads,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,zero_result_reason:items.length?null:!env.BRAVE_SEARCH_API_KEY?'search_not_configured':!discovery.candidates.length?'no_product_leads':!enriched.some(x=>x.price!=null)?'no_price_evidence':!editionSafe.length?'edition_evidence_missing':'constraints_or_identity_not_verified'},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
@@ -462,7 +482,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  if(!game)return json({error:'请提供游戏名称',status:'needs_clarification',candidates:[]},400);
  const filters={...parse(query),...incoming,game:game.name};
  const result=await agentSearchListings(query,filters,env);
- const candidates=result.items.map(x=>({...x,game:game.name,key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname},version_label:x.version_label,price_audit:{amount:x.price,currency:'CNY',source:x.price_evidence,is_realtime:false,confidence:x.price_evidence?.startsWith('detail_')?'medium':'low'}}));
+ const candidates=result.items; // Canonical card schema is produced once by the Harness.
  return json({items:result.items,candidates,coverage:result.coverage,requirements:filters,filters,discovery_status:result.harness?.zero_result_reason||'searched',summary:candidates.length?'找到 '+candidates.length+' 条有价格证据的商品线索；在售状态请以源站为准。':'未获得符合条件且有价格证据的商品，不能据此判断平台无货。',agent:{status:'harness',summary:'由 Progressive Search Harness 执行，不依赖 OpenRouter。'},trace:result.trace,harness:result.harness,search_diagnostics:result.search_diagnostics,discovered_count:result.discovered_count,priced_count:result.priced_count,unpriced_leads:result.unpriced_leads});
 }
 if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);
