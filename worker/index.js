@@ -765,7 +765,7 @@ async function agentSearchListings(query,args,env){
  const filters={...parsed,...args,game:game?.name||parsed.game,version:null,requested_version:args?.version||String(query).match(/(?:手游版|国际服|台服／枫之谷|国服)/)?.[0]||null,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
  let discovery=await discover(query,filters,env);
  const stages=[{stage:'discover_primary',count:discovery.candidates.length,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length}];
- if((discovery.candidates.length===0||!discovery.candidates.some(x=>x.price!=null&&x.price<=filters.max_price))&&env.BRAVE_SEARCH_API_KEY&&!discovery.trace.some(t=>t.result?.http_status===429)){
+ if((discovery.candidates.length===0||!discovery.candidates.some(x=>x.price!=null&&x.price<=filters.max_price))&&env.BRAVE_SEARCH_API_KEY&&!discovery.trace.some(t=>[402,429].includes(t.result?.http_status))){
   const retry=await discover(query,filters,env,{retry:true});
   const unique=new Map([...discovery.candidates,...retry.candidates].map(x=>[x.url,x]));
   discovery={...discovery,candidates:[...unique.values()],trace:[...discovery.trace,...retry.trace]};
@@ -839,7 +839,8 @@ async function agentSearchListings(query,args,env){
  }
  const zeroReason=items.length?null:
   !env.BRAVE_SEARCH_API_KEY?'search_not_configured':
-  !discovery.candidates.length?'no_product_leads':
+  !discovery.candidates.length&&discovery.trace.some(t=>t.result?.http_status===402)?'search_api_credit_exhausted':
+   !discovery.candidates.length?'no_product_leads':
   !pricingGate.with_price?'no_price_evidence':
   pricingGate.over_budget&&pricingGate.correct_game_priced===pricingGate.over_budget?'over_budget':
   !pricingGate.correct_game_priced?'identity_or_availability_unverified':
