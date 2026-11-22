@@ -142,6 +142,7 @@ test('G买卖 indexed H5 detail with generic title is verified against actual ga
  assert.equal(response.data.candidates.length,1);
  assert.equal(response.data.candidates[0].game,'青空测试');
  assert.equal(response.data.candidates[0].price,280);
+ assert.equal(response.data.candidates[0].id,'gmmsj.com:00005000000015363821794470004765');
  assert.ok(response.data.candidates[0].url.includes('book_id='));
  assert.equal(response.data.candidates[0].price_evidence,'gmmsj_detail_visible_price');
 });
