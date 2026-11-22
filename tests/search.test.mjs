@@ -311,3 +311,54 @@ test('G买卖 visible list prices survive blocked detail fetch and remain labele
  assert.equal(data.items[0].price_audit.source,'源站商品列表（非实时）');
  assert.equal(data.items[0].price_audit.is_realtime,false);
 });
+
+
+test('G买卖 linked card root can be an <a> element and keeps matching 4860003785 price',async()=>{
+ const id='000050000000017951759544860003785';
+ const html='<html><body><div class="list">'+
+ '<a class="product-item" href="/dy/5_zh/detail_'+id+'.shtml"><div>账号 [夜光法师 290级]1.5亿战力 克制3</div><span>可领优惠券 ¥10</span><p>商品类型：账号</p><strong>¥1700.00</strong></a>'+
+ '<a class="product-item" href="/dy/5_zh/detail_000050000000017945833707520002917.shtml"><div>账号 [莲 280级]另一商品</div><b>¥850.00</b></a>'+
+ '</div></body></html>';
+ const api=new Function('fetch','URL','AbortSignal',source.replace('export default {','const __worker = {')+';return {gmmsjCategoryLeads}')(
+  async()=>new Response(html,{status:200,headers:{'Content-Type':'text/html'}}),URL,AbortSignal);
+ const result=await api.gmmsjCategoryLeads({name:'冒险岛'},{version:null});
+ assert.equal(result.items.length,2);
+ assert.equal(result.items[0].price,1700);
+ assert.equal(result.items[1].price,850);
+ assert.match(result.items[0].title,/夜光法师/);
+ assert.equal(result.items[0].price_evidence,'gmmsj_category_visible_price');
+});
+
+test('G买卖 browser-renders list once when static feed has only links and details are blocked',async()=>{
+ const id='000050000000017951759544860003785';
+ const sourceUrl='https://www.gmmsj.com/dy/5_zh/detail_'+id+'.shtml';
+ const links='<a href="'+sourceUrl+'">查看详情</a>';
+ const rendered='<html><body><a class="product-card" href="'+sourceUrl+'"><div>账号 [夜光法师 290级]1.5亿战力</div><div>可用优惠券 ¥10</div><strong>¥1700.00</strong></a></body></html>';
+ const calls=[];
+ const BROWSER={quickAction:async(_action,opts)=>{
+  calls.push(opts.url);
+  if(opts.url.includes('5_zh.shtml'))return new Response(rendered,{status:200});
+  return new Response('Not available',{status:403});
+ }};
+ const fakeFetch=async url=>{
+  const u=new URL(String(url));
+  if(u.pathname==='/dy/5_zh.shtml')return new Response(links,{status:200,headers:{'Content-Type':'text/html'}});
+  return new Response('Blocked',{status:403});
+ };
+ const api=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {worker}')(
+  fakeFetch,URL,Response,AbortSignal);
+ const response=await api.worker.fetch({method:'POST',url:'https://gamepilot.example/api/search',json:async()=>({query:'2000元以内冒险岛账号',filters:{}})},{BROWSER});
+ assert.equal(response.status,200);
+ const data=await response.json();
+ assert.equal(data.items.length,1);
+ assert.equal(data.items[0].price,1700);
+ assert.equal(data.items[0].price_audit.source,'源站商品列表（非实时）');
+ assert.ok(data.trace.some(x=>x.tool==='gmmsj_category_price_render'&&x.result.priced===1));
+ assert.equal(calls.filter(url=>url.includes('5_zh.shtml')).length,1);
+});
+
+test('G买卖 已下架 detail is excluded even if historical price exists',()=>{
+ const {gmmsjDetail}=runtime();
+ const r=gmmsjDetail('<div>商品编号：1234567890 浏览量（12） 收藏量（） 已下架 保障类型: 无 商品类别: 账号 ¥1500.00 猜你喜欢</div>');
+ assert.equal(r.status,'sold');
+});
