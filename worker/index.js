@@ -336,8 +336,13 @@ function isProductPage(u,domain){
  }
  if(domain==='5173.com'){
   if(!['5173.com','www.5173.com','shop.5173.com','s.5173.com','old.5173.com'].includes(h))return false;
-  // Do not mistake search/category pages for individual goods. Require a detail path and stable id.
-  return /\/(?:goods?|products?|details?|items?)\b/i.test(p)&&/(?:[a-z0-9]{8,}|[0-9]{6,})/i.test(p.split('/').filter(Boolean).at(-1)||'');
+  // Recognize stable product IDs even when 5173 changes its detail route.
+  // Never classify search, category, cart, checkout or login URLs as products.
+  if(/\/(?:search|list|category|cart|checkout|order|login|register|payment)(?:\/|\.|$)/i.test(p))return false;
+  const last=p.split('/').filter(Boolean).at(-1)||'';
+  const queryId=['goodsId','goodsid','productId','itemId','bizOfferId'].map(k=>u.searchParams.get(k)).find(x=>/^[a-z0-9_-]{8,}$/i.test(x||''));
+  const detailPath=/(?:goods?|products?|details?|items?|offers?|account|sale|trade)/i.test(p);
+  return !!(detailPath&&((/^[a-z0-9_-]{8,}$/i.test(last)&&/[\d_-]/.test(last))||queryId));
  }
  return false;
 }
@@ -491,6 +496,22 @@ async function discover(query,filters,env,options={}){
    let added=0;for(const lead of rendered.items){if(!results.has(lead.url)){results.set(lead.url,lead);added++}}
    trace.push({tool:'browser_category_'+d.host,source_url:category.url,result:{status:rendered.status,detail_pages:added,rendered:true},duration_ms:Date.now()-start});
   }
+ }
+ // Official 5173 account marketplace fallback: submit the game via the public site's search UI.
+ if(typeof env?.BROWSER?.quickAction==='function'&&![...results.values()].some(x=>x.platform==='5173')){
+  let status='not_run',added=0,attempts=[],ms=0;
+  const start=Date.now();
+  try{
+   const module=await import('./platform5173.js');
+   const found=await module.browserSearch5173(game.name,env.BROWSER);
+   status=found.status;attempts=found.trace||[];
+   if(found.html&&found.url){
+    const links=extractProductLinksFromHtml(found.html,found.url,game,'5173.com','5173');
+    for(const lead of links){if(!results.has(lead.url)){results.set(lead.url,lead);added++}}
+   }
+  }catch(e){status='native_browser_error';attempts.push({result:'module_or_launch_failed',error_type:String(e?.name||'unknown').slice(0,50)})}
+  ms=Date.now()-start;
+  trace.push({tool:'browser_native_5173',result:{status,detail_pages:added,steps:attempts},duration_ms:ms});
  }
  const all=[...results.values()];
  // Do not silently discard unknown attributes. Instead label uncertainty and rank lower.
