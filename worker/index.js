@@ -261,7 +261,21 @@ async function agentSearchListings(query,args,env){
  const items=enriched.map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
  return {items,coverage:coverageReport(enriched,discovery.trace),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/search'&&request.method==='POST'){
+// On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
+async function watchPrice(raw,env){
+ let u;try{u=new URL(raw)}catch{return {error:'invalid_url'}};
+ if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port||!isProductPage(u,u.hostname.replace(/^www\./,'')))return {error:'unsupported_listing_url'};
+ const checked=await verifyListing(u.href);
+ const key='price-watch:'+u.hostname+u.pathname;
+ let previous=null,history=[];
+ if(env.PRICE_HISTORY){try{const saved=await env.PRICE_HISTORY.get(key,'json');history=Array.isArray(saved)?saved.slice(-29):[];previous=[...history].reverse().find(x=>x.price!=null)||null}catch{}}
+ const validPrice=checked.price!=null&&checked.status!=='sold'&&checked.status!=='stale'&&checked.price_evidence!=='search_snippet';
+ const current=validPrice?{price:checked.price,checked_at:checked.checked_at||new Date().toISOString(),evidence:checked.price_evidence,status:checked.status}:null;
+ const change=current&&previous?{amount:Number((current.price-previous.price).toFixed(2)),percent:previous.price?Number(((current.price-previous.price)/previous.price*100).toFixed(2)):null,direction:current.price<previous.price?'down':current.price>previous.price?'up':'unchanged'}:null;
+ if(env.PRICE_HISTORY&&current){try{history.push(current);await env.PRICE_HISTORY.put(key,JSON.stringify(history.slice(-30)),{expirationTtl:60*60*24*90})}catch{return {url:u.href,current,previous,change,history_saved:false,warning:'历史价格保存失败',status:checked.status}}}
+ return {url:u.href,current,previous,change,history_saved:!!env.PRICE_HISTORY&&!!current,history_points:history.length,availability:checked.status,updated_at:checked.updated_at||null,warning:!validPrice?'当前详情页无可信价格，或商品已售出/过期；不生成价格变化':!env.PRICE_HISTORY?'未绑定 PRICE_HISTORY KV，当前仅支持即时价格检查':'历史价格为此前检查时的快照，并非连续实时监控'};
+}
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/price-watch'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await watchPrice(String(b.url||'').slice(0,500),env))}if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/search'&&request.method==='POST'){
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000),parsed=parse(query),incoming=body.filters||{};
  const filters={...parsed,...incoming,server:incoming.server&&incoming.server!=='all'?incoming.server:parsed.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsed.realname,max_price:Number(incoming.max_price)>0?Number(incoming.max_price):parsed.max_price};
