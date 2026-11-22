@@ -10,6 +10,12 @@ const HARNESS_LAYERS=[
  {id:'evidence',step:'04',type:'Tools',title:'详情与证据验证',desc:'HTTP → Browser Run 回退核价',tag:'Evidence Engine'},
  {id:'ranking',step:'05',type:'Policy',title:'精确筛选与排序',desc:'游戏、预算硬约束 · 偏好软排序',tag:'Filter & Rank'}
 ];
+const harnessStageState=step=>{
+ if(step.skipped)return 'pending';
+ if(step.stage==='browser_render'&&(!step.configured||!step.count))return 'pending';
+ if(step.stage==='native_5173'&&step.status!=='rendered_search')return 'error';
+ return 'finished';
+};
 const INTERVIEW_SCRIPT='GamePilot 采用可观测的 Progressive Search Harness，而不是把整条搜索交给一个大模型。首先由需求解析 Skill 把游戏、预算和偏好转成结构化条件；Harness 再调度多平台商品发现，普通 HTTP 获取不足时，按条件调用 Cloudflare Browser Run。每件商品都会记录来源、价格证据和验证状态。预算与游戏身份是硬约束，偏好用于排序；证据不足的商品不会伪装成已验证推荐。右侧的运行记录来自后端 Trace，可以解释每次搜索成功或失败的原因。';
 const GAME_NAMES=['王者荣耀','冒险岛','原神','和平精英','地下城与勇士','英雄联盟','永劫无间','逆水寒'];
 const GAME_ALIASES=[['王者荣耀',['王者荣耀','王者']],['冒险岛',['冒险岛','MapleStory','枫之谷']],['原神',['原神','Genshin']],['和平精英',['和平精英','吃鸡']],['地下城与勇士',['地下城与勇士','DNF','地下城']],['英雄联盟',['英雄联盟','LOL']],['永劫无间',['永劫无间']],['逆水寒',['逆水寒']]];
@@ -190,7 +196,7 @@ function App(){
   {harness?<>
    <div className="harnessRuntimeSummary"><strong>{harness.version||'Progressive Search'}</strong><span>{harness.attempts??0} 轮发现 · {leadAudit?.discovered??searchDiagnostics?.discovered??0} 条线索</span></div>
    <div className="executionFlow">
-    {(harness.stages||[]).map((step,i)=><div className={'executionStep '+(step.stage==='browser_render'&&!step.configured?'pending':'finished')} key={i}><span className="executionNode">{step.stage==='browser_render'&&!step.configured?i+1:'✓'}</span><div className="executionStepBody"><strong>{({discover_primary:'发现商品',discover_fallback:'补充搜索',verify_details:'HTTP 验证详情',browser_render:'Browser Run 渲染核价',native_5173:'5173 官网站内搜索',edition_filter:'核对游戏',hard_filter_and_rank:'筛选与排序'})[step.stage]||step.stage}</strong><small>{step.stage==='browser_render'&&!step.configured?'未启用浏览器绑定':step.stage==='native_5173'?(step.status==='rendered_search'?'已提交站内查询':'未完成：'+step.status)+' · '+step.count+' 条链接':step.stage==='browser_render'?step.count+' 次渲染 · 恢复 '+(step.priced||0)+' 条价格':step.count+' 条'+(step.priced!=null?' · 有价格 '+step.priced+' 条':'')+(step.requests!=null?' · '+step.requests+' 次请求':'')}</small></div></div>)}
+    {(harness.stages||[]).map((step,i)=><div className={'executionStep '+harnessStageState(step)} key={i}><span className="executionNode">{harnessStageState(step)==='finished'?'✓':harnessStageState(step)==='error'?'!':i+1}</span><div className="executionStepBody"><strong>{({discover_primary:'发现商品',discover_fallback:'补充搜索',verify_details:'HTTP 验证详情',browser_render:'Browser Run 渲染核价',native_5173:'5173 官网站内搜索',edition_filter:'核对游戏',hard_filter_and_rank:'筛选与排序'})[step.stage]||step.stage}</strong><small>{step.stage==='browser_render'&&!step.configured?'未启用浏览器绑定':step.stage==='browser_render'&&!step.count?'未触发浏览器回退':step.stage==='native_5173'?(step.status==='rendered_search'?'已提交站内查询':'未完成：'+step.status)+' · '+step.count+' 条链接':step.stage==='browser_render'?step.count+' 次渲染 · 恢复 '+(step.priced||0)+' 条价格':step.count+' 条'+(step.priced!=null?' · 有价格 '+step.priced+' 条':'')+(step.requests!=null?' · '+step.requests+' 次请求':'')}</small></div></div>)}
    </div>
    {harness.zero_result_reason&&<div className="executionAlert"><AlertTriangle size={15}/><span>{({search_not_configured:'搜索服务尚未配置',no_product_leads:'未发现可确认的商品详情链接',no_price_evidence:'价格证据不足',edition_evidence_missing:'版本证据不足',constraints_or_identity_not_verified:'商品未通过约束筛选'})[harness.zero_result_reason]||harness.zero_result_reason}</span></div>}
    <div className="harnessRunCounts"><div>可推荐<strong>{items.length}</strong></div><div>待核价<strong>{unpricedLeads.length}</strong></div><div>已排除<strong>{excludedLeads.length}</strong></div></div>
