@@ -447,7 +447,7 @@ test('官方盼之王者荣耀列表在 Brave 402 时仍提取正确商品价格
  assert.equal(data.excluded_leads.length,2);
  assert.equal(data.coverage.platforms.find(x=>x.platform==='盼之账号').with_price,3);
  assert.ok(data.trace.some(x=>x.tool==='pzds_category'&&x.result.priced===3));
- assert.ok(data.trace.some(x=>x.tool==='discover_pzds.com'&&x.result.http_status===402));
+ assert.ok(data.trace.some(x=>x.tool==='discover_brave'&&x.result.http_status===402));
  assert.ok(calls.some(x=>x.includes('/goodsList/7/6')));
 });
 
