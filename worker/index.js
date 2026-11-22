@@ -5,7 +5,7 @@ const HOSTS=new Set(['www.pzds.com','pzds.com','www.pxb7.com','pxb7.com','www.51
 async function verifyListing(raw){
  let u;try{u=new URL(raw)}catch{return {status:'invalid_url',message:'无效商品链接'}}
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port)return {status:'unsupported_source',message:'不支持此域名'};
- const id=u.pathname.match(/goodsDetails\/([^/]+)/)?.[1];
+ const id=u.pathname.split('/').includes('goodsDetails')?u.pathname.split('/')[u.pathname.split('/').indexOf('goodsDetails')+1]:null;
  if(KNOWN_SOLD.has(id))return {status:'sold',message:'用户已提供售出截图，排除推荐；未重新联网核验',source_url:u.href,verified_at:null};
  try{
  const r=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(7000),headers:{Accept:'text/html'}});
