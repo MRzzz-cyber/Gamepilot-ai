@@ -310,8 +310,8 @@ function clarifyGeneralGame(message,context={}){
  if(!game||game.name==='冒险岛')return null;
  const explicit=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
  const bare=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);
- const max_price=explicit?Number(explicit[1]||explicit[2]):bare?Number(bare[1]):context.max_price??null;
- const server=text.match(/(?:安卓QQ|苹果QQ|安卓微信|苹果微信)/)?.[0]||context.server||null;
+ const max_price=explicit?Number(explicit[1]||explicit[2]):bare?Number(bare[1]):/不限预算|先看看价格/.test(text)?100000:context.max_price??null;
+ const server=text.match(/(?:安卓QQ|苹果QQ|安卓微信|苹果微信)/)?.[0]||(/不限区服|全部区服/.test(text)?'all':null)||context.server||null;
  const realname=/(?:不可二次实名|不支持二次实名)/.test(text)?'no':/(?:支持二次实名|可二次实名|可二改)/.test(text)?'yes':context.realname||'all';
  const preferences=[...new Set([...(Array.isArray(context.preferences)?context.preferences:[]),...(/皮肤越多|皮肤多/.test(text)?['皮肤越多越好']:[]),...(/英雄越多|英雄多/.test(text)?['英雄越多越好']:[])])];
  const requirements={game:game.name,server,max_price,realname,preferences};
