@@ -75,6 +75,32 @@ async function browserRenderListing(raw,env){
   return {ok:true,html,duration_ms:Date.now()-start};
  }catch(e){return {ok:false,reason:'browser_render_failed',error_type:String(e?.name||'unknown').slice(0,50),duration_ms:Date.now()-start}}
 }
+function extractListingAttributes(html){
+ const text=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const number=re=>{const m=text.match(re);return m?Number(m[1]):null};
+ const field=re=>text.match(re)?.[1]?.trim()||null;
+ const server=field(/(?:游戏区服|〖区服〗|区服)\s*[:：]?\s*(?:[\p{Script=Han}A-Za-z0-9·_-]+[-－])?\s*(苹果QQ|苹果微信|安卓QQ|安卓微信|iOS\s*QQ|iOS\s*微信)/iu);
+ const skins=number(/(?:〖\s*皮肤(?:数量|数)\s*〗|皮肤(?:数量|数)?)\s*[:：]?\s*(\d{1,4})(?!\d)/u);
+ const heroes=number(/(?:〖\s*英雄(?:数量|数)\s*〗|英雄(?:数量|数)?)\s*[:：]?\s*(\d{1,4})(?!\d)/u);
+ const realname=/(?:不可二次实名|不可二改|不支持二次实名|不能二次实名)/u.test(text)?false:/(?:可二次实名|支持二次实名|可二改)/u.test(text)?true:null;
+ const rank=field(/(?:〖段位〗|当前段位|游戏段位|段位)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·]{2,12})/u);
+ const noble=number(/(?:贵族等级|贵族)\s*[:：]?\s*(\d{1,2})/u);
+ const profession=field(/(?:〖职业〗|职业|职阶)\s*[:：]?\s*([\p{Script=Han}A-Za-z]{2,14})/u);
+ const level=number(/(?:角色等级|人物等级|当前等级|等级|〖等级〗)\s*[:：]?\s*(\d{1,4})(?!\d)/u);
+ const power=field(/(?:战斗力|战力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:亿|万)?)/u);
+ const stock=number(/(?:库存)\s*[:：]?\s*(\d{1,6})(?!\d)/u);
+ const listingId=field(/(?:商品编号|账号编号|货号|商品ID|编号)\s*[:：]?\s*([A-Za-z0-9_-]{5,40})/u);
+ const description=field(/(?:商品描述|账号描述|详细描述)\s*[:：]?\s*(.{10,340}?)(?=交易流程|购买须知|售后保障|举报|服务保障|$)/u);
+ const headline=decodeEntities(String(html).match(/<(?:h1|h2)\b[^>]*>([\s\S]{1,220}?)<\/(?:h1|h2)>/i)?.[1]||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,150);
+ return {server:server?server.replace(/^iOS\s*/i,'苹果'):null,skins,heroes,realname,rank,noble,profession,level,power,stock,listing_id:listingId,summary:description?.slice(0,240)||null,title:headline&&!/^(?:商品详情|商品信息|游戏账号|交易流程|猜你喜欢|相关推荐)$/u.test(headline)?headline:null};
+}
+function normalizeDetailGame(raw){
+ const name=String(raw||'').trim();
+ if(!name)return null;
+ if(name==='枫之谷'||name==='冒险岛M')return '冒险岛';
+ const match=GAME_CATALOG.find(g=>g.aliases.some(a=>name===a||name.startsWith(a+'-')||name.startsWith(a+'－')||name.startsWith(a+' ')||name.startsWith(a+'·')));
+ return match?.name||name.split(/[-－|｜]/)[0].trim()||null;
+}
 async function verifyListing(raw,renderedHtml=null){
  let u;try{u=new URL(raw)}catch{return {status:'invalid_url',message:'无效商品链接'}}
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port)return {status:'unsupported_source',message:'不支持此域名'};
@@ -91,16 +117,16 @@ async function verifyListing(raw,renderedHtml=null){
  }
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
  const textBody=decodeEntities(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
- const gameLabel=textBody.match(/(?:所属游戏|游戏名称|游戏分类)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·_-]{2,28})/u)?.[1]||null;
+ const gameLabel=textBody.match(/(?:所属游戏|游戏名称|游戏分类|游戏区服)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·_-]{2,28})/u)?.[1]||null;
  const strongTitleGame=pageTitle.match(/^【?([\p{Script=Han}A-Za-z0-9·：_-]{2,24})】?(?:游戏)?(?:账号|帐号|成品号)(?:\s|[（【|：-]|$)/u)?.[1]||null;
  const titleGame=strongTitleGame&&!/(?:交易|商品|平台|卖号|买号|账号)/.test(strongTitleGame)?strongTitleGame:null;
- const detailGame=GAME_CATALOG.find(g=>listingGameMatches(pageTitle,'',g))?.name||(gameLabel==='枫之谷'||gameLabel==='冒险岛M'?'冒险岛':gameLabel)||titleGame;
+ const detailGame=normalizeDetailGame(gameLabel)||GAME_CATALOG.find(g=>listingGameMatches(pageTitle,'',g))?.name||titleGame;
  const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;const updatedAt=listingUpdatedAt(html);const stale=isStaleListing(updatedAt);
  const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格|goodsDetails|sellingPrice|salePrice|goodsPrice)/i.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
  // Search only the page title and explicit structured availability for strong sold evidence.
  const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
  const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
- return {status:sold?'sold':stale?'stale':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':stale?'商品最后更新超过180天，不能作为当前可售报价':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',updated_at:updatedAt,detail_game:detailGame,price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:renderedHtml!==null?'Cloudflare Browser Run rendered HTML':'公开HTML与结构化商品数据',page_title:pageTitle};
+ return {status:sold?'sold':stale?'stale':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':stale?'商品最后更新超过180天，不能作为当前可售报价':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',updated_at:updatedAt,detail_game:detailGame,price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:renderedHtml!==null?'Cloudflare Browser Run rendered HTML':'公开HTML与结构化商品数据',page_title:pageTitle,detail_attributes:extractListingAttributes(html)};
  }catch(e){return {status:'unverified',message:'详情页访问超时或受限',fetch_error:String(e?.name||'network_error'),source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates,env,trace=[]){
