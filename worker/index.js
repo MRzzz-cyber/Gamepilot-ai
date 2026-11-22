@@ -232,12 +232,36 @@ function isGenericPage(title,description,game){
  return !gameMatches(t+' '+d,game)||(!listingEvidence&&generic.test(t));
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
+// First-party public category feed: source is explicitly mainland MapleStory, never TMS/GMS.
+async function gmmsjCategoryLeads(game,filters){
+ if(game?.name!=='冒险岛'||(filters.version&&filters.version!=='国服'))return {items:[],diagnostic:'edition_not_supported'};
+ const source='https://www.gmmsj.com/dy/5_zh.shtml?sourceType=4&special=1';
+ try{
+  const response=await fetch(source,{signal:AbortSignal.timeout(8500),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
+  if(!response.ok)return {items:[],diagnostic:'http_'+response.status};
+  const html=(await response.text()).slice(0,1100000);
+  const links=[...html.matchAll(/(?:href\s*=\s*["'])([^"']*\/dy\/5_zh\/detail_[a-z0-9]+\.shtml[^"']*)["']/gi)];
+  const unique=new Map();
+  for(const m of links){
+   let url;try{url=new URL(decodeEntities(m[1].replace(/&amp;/g,'&')),source)}catch{continue}
+   if(!isProductPage(url,'gmmsj.com')||unique.has(url.pathname))continue;
+   const nearby=cleanText(decodeEntities(html.slice(Math.max(0,m.index-1600),m.index+300).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ')));
+   const titles=[...nearby.matchAll(/(?:账号\s*)?\[([^\]]{2,80})\]([^¥￥]{0,110})/g)];
+   const candidate=titles.at(-1);
+   const title=candidate?('冒险岛 '+candidate[1]+' '+candidate[2]).slice(0,160):'冒险岛账号（详情待核验）';
+   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:'G买卖冒险岛国服账号分类页',server:null,price:null,price_evidence:'unknown',price_source_label:'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:'官方冒险岛国服分类页线索，需核验详情价格与库存',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
+   if(unique.size>=35)break;
+  }
+  return {items:[...unique.values()],diagnostic:'ok',links_found:links.length};
+ }catch(e){return {items:[],diagnostic:'fetch_failed'};}
+}
 async function discover(query,filters,env){
- if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],trace:[{tool:'search',result:{error:'BRAVE_SEARCH_API_KEY 未配置'}}],reason:'missing_search_key',message:'搜索服务未配置'};
+ // Public category feeds can still discover leads when Brave is missing or rate-limited.
  const trace=[],results=new Map(),game=detectGame(query),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'detect_game',result:{error:'unsupported_game',supported:GAME_CATALOG.map(g=>g.name)}}],reason:'unsupported_game',message:'暂未识别游戏名称，请输入王者荣耀、冒险岛、原神等游戏名称'};
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
- const allPlans=searchPlans(game,filters);
+ const feed=await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
+ const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
  const plans=[];for(let i=0;i<6;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
   const t=Date.now();try{
