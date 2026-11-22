@@ -101,13 +101,16 @@ function evaluateCandidate(x,req){
 function searchPlans(game,filters){
  const budget=Math.max(1,Number(filters.max_price)||1000);
  const server=game.server&&filters.server!=='all'?filters.server:'';
- const categories=game.name==='冒险岛'
- ? ['账号','成品号','角色','装备','高战力','职业','弓箭手','法师','战士','飞侠','海盗','冒险岛Online','冒险岛M','枫之谷']
- : game.name==='王者荣耀'
- ? ['账号','成品号','皮肤','典藏','传说','英雄','苹果QQ','安卓QQ','可二次实名']
- : [...new Set(['账号','成品号','角色','装备',...game.terms,...game.aliases.slice(1)])];
- const terms=[game.name+' 账号 出售',game.name+' 商品编号',game.name+' 账号 价格',game.name+' '+(server||'成品号'),...categories.slice(0,3).map(t=>game.name+' '+t)];
- return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>[...terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})),...(d.host==='gmmsj.com'&&game.name==='冒险岛'?[{d,q:'site:gmmsj.com/dy/5_zh/detail_ 冒险岛 账号 ¥',offset:0,variant:999}]:[])]);
+ const core=[game.name+' 账号 出售',game.name+' 商品编号',game.name+' 账号 价格',game.name+' '+(server||'成品号')];
+ const targeted=game.name==='王者荣耀'
+ ? [game.name+' '+(server||'苹果QQ')+' 售价',game.name+' 账号 可二次实名',game.name+' 皮肤 账号 ￥',game.name+' 账号 '+Math.round(budget*0.8)+'元',game.name+' 账号 '+Math.round(budget*1.1)+'元']
+ : game.name==='冒险岛'
+ ? [game.name+' 成品号 售价',game.name+' 弓箭手 账号 ￥',game.name+' 角色 账号 ￥',game.name+' 账号 '+Math.round(budget*0.8)+'元',game.name+' 账号 '+Math.round(budget*1.1)+'元']
+ : [game.name+' 成品号 售价',game.name+' 角色 账号 ￥',game.name+' 装备 账号 ￥'];
+ return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>{
+  const terms=[...new Set([...core,...targeted])];
+  return terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i}));
+ });
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\/detail_[a-z0-9]+\.shtml$/i.test(p);if(domain==='5173.com')return /\/(?:goods?|product|detail|item|sale|buy|account|game)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
