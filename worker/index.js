@@ -70,7 +70,7 @@ function requirements(query,filters,game){
  if(/装备好|装备强|毕业装备/.test(q))soft.push('装备好');
  if(/皮肤多|皮肤越多/.test(q))soft.push('皮肤多');
  if(/高等级|等级高/.test(q))soft.push('等级高');
- const profession=q.match(/(?:职业|职阶)\\s*[:：为是]?\\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1];
+ const profession=q.match(/(?:职业|职阶)\s*[:：为是]?\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1];
  if(profession)hard.push({field:'profession',value:profession});
  return {game:game.name,hard,soft,budget,flex_budget:Math.round(budget*1.3),price_policy:'只比较有明确价格证据的候选；索引价格非实时',inventory_policy:'未核验在售不得宣称可购买'};
 }
@@ -84,9 +84,9 @@ function evaluateCandidate(x,req){
   if(h.field==='server'&&!x.server)unknown.push('区服未核实');
   if(h.field==='realname'&&x.realname===false)failures.push('不支持二次实名');
   if(h.field==='realname'&&x.realname==null)unknown.push('实名状态未核实');
-  if(h.field==='profession'&&!full.includes(h.value))unknown.push('职业未核实');
+  if(h.field==='profession'){const known=full.match(/(?:职业|职阶)\s*[:：为是]?\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1];if(known&&known!==h.value)failures.push('职业不匹配');else if(!known)unknown.push('职业未核实')}
  }
- for(const term of req.soft){const hit=term==='战力高'?/战力\\s*[:：]?\\s*\\d{4,}/.test(full):term==='装备好'?/装备|神装|毕业/.test(full):term==='皮肤多'?x.skins!=null&&x.skins>=150:term==='等级高'?/等级\\s*[:：]?\\s*(?:2\\d\\d|3\\d\\d)/.test(full):false;if(hit)positive.push(term);else unknown.push(term+'缺少证据')}
+ for(const term of req.soft){const hit=term==='战力高'?/战力\s*[:：]?\s*\d{4,}/.test(full):term==='装备好'?/装备|神装|毕业/.test(full):term==='皮肤多'?x.skins!=null&&x.skins>=150:term==='等级高'?/等级\s*[:：]?\s*(?:2\d\d|3\d\d)/.test(full):false;if(hit)positive.push(term);else unknown.push(term+'缺少证据')}
  const fit=failures.length?'rejected':unknown.length?'partial':'matched';
  const score=failures.length?0:Math.max(10,Math.min(95,45+positive.length*12-unknown.length*7+(x.price<=req.budget?15:0)));
  return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
@@ -99,12 +99,12 @@ function searchPlans(game,filters){
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='5173.com'||domain==='gmmsj.com')return /\/(?:goods?|product|detail|item|sale|buy)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
 function extractPrice(s){
- const t=String(s||'').replace(/,/g,'').replace(/\\s+/g,' ');
+ const t=String(s||'').replace(/,/g,'').replace(/\s+/g,' ');
  // Only explicit listing prices; never infer prices from levels, IDs, views or generic platform copy.
  const patterns=[
-  /(?:售价|现价|到手价|商品价格|标价|卖价|参考价|价格)\\s*[:：]?\\s*[¥￥]?\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*(?:元)?/gi,
-  /[¥￥]\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)/g,
-  /([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*元(?:\\s|$|[，。；])/g
+  /(?:售价|现价|到手价|商品价格|标价|卖价|参考价|价格)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\\.\d{1,2})?)\s*(?:元)?/gi,
+  /[¥￥]\s*([1-9]\d{0,5}(?:\\.\d{1,2})?)/g,
+  /([1-9]\d{0,5}(?:\\.\d{1,2})?)\s*元(?:\s|$|[，。；])/g
  ];
  for(const re of patterns){for(const m of t.matchAll(re)){const v=Number(m[1]);if(Number.isFinite(v)&&v>=1&&v<=1000000)return v}}
  return null;
@@ -112,7 +112,7 @@ function extractPrice(s){
 function isGenericPage(title,description,game){
  const t=String(title||'').trim(),d=String(description||'');
  const generic=/(?:交易平台|交易网|账号交易平台|游戏账号交易|游戏交易平台|账号买卖平台|首页|商品列表|账号交易网)/;
- const product=/(?:商品编号|账号编号|商品ID|编号[:：]?\\s*[A-Z0-9]{5,}|等级[:：]?\\s*\\d{2,}|职业[:：]|战力[:：]|皮肤(?:数量)?[:：]?\\s*\\d+)/i;
+ const product=/(?:商品编号|账号编号|商品ID|编号[:：]?\s*[A-Z0-9]{5,}|等级[:：]?\s*\d{2,}|职业[:：]|战力[:：]|皮肤(?:数量)?[:：]?\s*\d+)/i;
  return (generic.test(t)&&!product.test(t+' '+d))||(!gameMatches(t+' '+d,game));
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
@@ -192,7 +192,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
  const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
  const noteMap=new Map((ai.notes||[]).map(n=>[n.id,n]));
- const candidates=display.map(x=>({...x,agent_note:noteMap.get(x.id)||null}));
+ const candidates=display.map(x=>({...x,agent_note:noteMap.get(x.id)||null,price_audit:{amount:x.price,currency:'CNY',source:x.price_evidence?.startsWith('detail_')?'商品详情页': '搜索引擎索引',is_realtime:false,verified_at:x.checked_at||null,confidence:x.price_evidence?.startsWith('detail_')?'medium':'low',warning:x.price_conflict?'索引价格与详情价格冲突':null},key_attributes:{game:x.game,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,profession:(x.title+' '+x.description).match(/(?:职业|职阶)\s*[:：为是]?\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1]||null,power:(x.title+' '+x.description).match(/(?:战力|战斗力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/)?.[1]||null}}));
  return json({items:[],candidates,coverage,requirements:req,rejected_count:evaluated.filter(x=>x.requirement_evaluation?.fit==='rejected').length,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
 }
 
