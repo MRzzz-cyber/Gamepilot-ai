@@ -128,3 +128,7 @@
 @media(min-width:1251px){.harnessExplorer{padding:24px 14px}.harnessArchitectureLayer{min-height:94px}}
 @media(max-width:1250px) and (min-width:801px){.harnessArchitectureFlow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.harnessArchitectureLayer{display:block;min-height:0}.harnessArchitectureLayer:before{display:none}.harnessLayerRail{margin:0 0 8px}.harnessLayerContent{min-height:115px;padding:10px}.harnessOutputGrid{max-width:520px}}
 @media(max-width:800px){.harnessExplorer{padding:20px 16px}.harnessArchitectureFlow{display:flex}.harnessArchitectureLayer{min-height:95px}}
+
+/* Runtime statuses are evidence-derived, not decorative checkmarks. */
+.executionStep.error .executionNode{background:#55392b;color:#ffd6a2;border-color:#96653c}
+.executionStep.error .executionStepBody strong{color:#f5cba4}
