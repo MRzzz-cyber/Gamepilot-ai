@@ -240,10 +240,10 @@ async function gmmsjCategoryLeads(game,filters){
   const response=await fetch(source,{signal:AbortSignal.timeout(8500),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
   if(!response.ok)return {items:[],diagnostic:'http_'+response.status};
   const html=(await response.text()).slice(0,1100000);
-  const links=[...html.matchAll(/(?:href\s*=\s*["'])([^"']*\/dy\/5_zh\/detail_[a-z0-9]+\.shtml[^"']*)["']/gi)];
+  const links=[...html.matchAll(/(?:href\s*=\s*["'])([^"']*(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml[^"']*)["']/gi)];
   const unique=new Map();
   for(const m of links){
-   let url;try{url=new URL(decodeEntities(m[1].replace(/&amp;/g,'&')),source)}catch{continue}
+   let url;try{const href=decodeEntities(m[1].replace(/&amp;/g,'&'));url=new URL(href.startsWith('detail_')?'/dy/5_zh/'+href:href,source)}catch{continue}
    if(!isProductPage(url,'gmmsj.com')||unique.has(url.pathname))continue;
    const nearby=cleanText(decodeEntities(html.slice(Math.max(0,m.index-1600),m.index+300).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ')));
    const titles=[...nearby.matchAll(/(?:账号\s*)?\[([^\]]{2,80})\]([^¥￥]{0,110})/g)];
