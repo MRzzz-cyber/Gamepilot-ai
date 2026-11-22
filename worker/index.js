@@ -798,7 +798,7 @@ if(url.pathname==='/api/search'&&request.method==='POST'){
  const query=String(body.query||'').slice(0,1000),incoming=body.filters||{};
  const game=resolveGame(query,incoming);
  if(!game)return json({error:'请提供游戏名称',status:'needs_clarification',candidates:[]},400);
- const filters={...parse(query),...incoming,game:game.name};
+ const parsedFilters=parse(query);const filters={...parsedFilters,...incoming,game:game.name,server:incoming.server&&incoming.server!=='all'?incoming.server:parsedFilters.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsedFilters.realname};
  const result=await agentSearchListings(query,filters,env);
  const candidates=result.items; // Canonical card schema is produced once by the Harness.
  return json({items:result.items,candidates,coverage:result.coverage,requirements:filters,filters,discovery_status:result.harness?.zero_result_reason||'searched',summary:candidates.length?'找到 '+candidates.length+' 条满足硬条件的有价线索，商品在售状态仍需源站核验。':({over_budget:'找到商品价格，但符合游戏身份的有价线索均超过预算。',identity_or_availability_unverified:'检索到商品价格，但没有可确认游戏身份及有效状态的推荐商品。',no_price_evidence:'发现商品详情线索，但尚未获得可信价格。',other_constraints_unmet:'有预算内线索，但其他硬条件未满足。'})[result.harness?.zero_result_reason]||'没有商品通过本次硬条件筛选；并不代表平台无货。',agent:{status:'harness',summary:'由 Progressive Search Harness 执行，不依赖 OpenRouter。'},trace:result.trace,harness:result.harness,search_diagnostics:result.search_diagnostics,discovered_count:result.discovered_count,priced_count:result.priced_count,unpriced_leads:result.unpriced_leads,excluded_leads:result.excluded_leads,lead_audit:result.lead_audit});
