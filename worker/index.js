@@ -744,6 +744,43 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  const msg=result.status==='completed'?result.summary:result.status==='skipped'?'没有可分析的商品或未配置 OpenRouter API。':'模型分析暂不可用：'+(result.reason||'unknown');
  return json({answer:msg,model:result.model||null,usage:result.usage||null,notes:result.notes||[],status:result.status,analyzed_count:candidates.length});
 }
+if(url.pathname==='/api/verify-lead'&&request.method==='POST'){
+ let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
+ const requestedGame=String(body.game||'').trim().slice(0,60);
+ let productUrl;try{productUrl=new URL(String(body.url||''))}catch{return json({error:'无效商品链接'},400)}
+ const domain=productUrl.hostname.endsWith('.5173.com')||productUrl.hostname==='5173.com'?'5173.com':productUrl.hostname.replace(/^www\./,'');
+ if(!requestedGame||productUrl.protocol!=='https:'||!HOSTS.has(productUrl.hostname)||
+   productUrl.username||productUrl.password||productUrl.port||!isProductPage(productUrl,domain))
+  return json({error:'仅支持核验已知交易平台的有效商品详情链接'},400);
+ const start=Date.now();
+ let verified=await verifyListing(productUrl.href);
+ const steps=[{tool:'http_detail',status:verified.status,http_status:verified.http_status||null,price_found:verified.price!=null}];
+ if(verified.price==null&&typeof env.BROWSER?.quickAction==='function'&&['gmmsj.com','5173.com'].includes(domain)&&
+   !['sold','stale'].includes(verified.status)){
+  const rendered=await browserRenderListing(productUrl.href,env);
+  steps.push({tool:'browser_run',status:rendered.ok?'rendered':rendered.reason||'failed',duration_ms:rendered.duration_ms});
+  if(rendered.ok){
+   const retry=await verifyListing(productUrl.href,rendered.html);
+   if(retry.price!=null||retry.detail_attributes?.summary||retry.detail_game||retry.status==='sold')verified=retry;
+  }
+ }
+ const gameMatched=verified.detail_game===requestedGame;
+ const amount=verified.price!=null&&verified.status!=='sold'&&verified.status!=='stale'?verified.price:null;
+ const attrs=verified.detail_attributes||{};
+ const requestedBudget=Number(body.max_price)||null;
+ const requestedServer=String(body.server||'all');
+ const serverMatch=requestedServer==='all'||!attrs.server?null:
+  requestedServer==='苹果区'?attrs.server.startsWith('苹果'):
+  requestedServer==='安卓区'?attrs.server.startsWith('安卓'):
+  attrs.server===requestedServer;
+ return json({url:productUrl.href,game:requestedGame,detail_game:verified.detail_game||null,game_match:gameMatched,
+  price:amount,price_evidence:amount!=null?verified.price_evidence:'unknown',
+  price_status:amount==null?'unknown':!gameMatched?'unconfirmed_game':requestedBudget!=null&&amount>requestedBudget?'over_budget':'price_found',
+  budget_match:amount!=null&&requestedBudget!=null?amount<=requestedBudget:null,server_match:serverMatch,
+  status:verified.status,reason:verified.message||'详情信息不足',
+  attributes:attrs,title:attrs.title||verified.page_title||null,checked_at:verified.checked_at||null,
+  source:'public_marketplace_detail',steps,duration_ms:Date.now()-start});
+}
 if(url.pathname==='/api/search'&&request.method==='POST'){
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000),incoming=body.filters||{};
