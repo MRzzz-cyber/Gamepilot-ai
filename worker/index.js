@@ -17,32 +17,32 @@ async function verifyListing(raw){
 }
 
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号',query:'site:pzds.com/goodsDetails/ 王者荣耀 价格'},{host:'pxb7.com',platform:'螃蟹账号',query:'site:pxb7.com/seo/buy/ 王者荣耀 账号 价格'}];
-function isProductPage(u,domain){if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+\/\d+\/?$/i.test(u.pathname);if(domain==='pxb7.com')return /^\/seo\/buy\/\d+\/\d+\/?$/i.test(u.pathname);return false}
+function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='pxb7.com')return /^\/(?:seo\/buy\/\d+(?:\/\d+)?|goods?\/[a-z0-9_-]+|detail\/[a-z0-9_-]+)\/?$/i.test(p);return false}
 function extractPrice(s){const matches=[...s.matchAll(/(?:[¥￥]\s*|(?:售价|价格|卖价|现价|到手价)\s*[:：]?\s*)([1-9]\d{1,5})(?:\.\d{1,2})?\s*(?:元)?/g)].map(x=>Number(x[1]));return matches.length?matches[0]:null}
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],trace:[{tool:'search',result:{error:'BRAVE_SEARCH_API_KEY 未配置'}}],reason:'missing_search_key',message:'搜索服务未配置'};
  const trace=[],results=new Map(),server=filters.server==='all'?'':filters.server;
- const plans=SEARCH_DOMAINS.flatMap(d=>[d.host==='pzds.com'?'site:pzds.com/goodsDetails/ 王者荣耀 '+server:'site:pxb7.com/seo/buy/ 王者荣耀 '+server,d.host==='pzds.com'?'site:pzds.com 王者荣耀 苹果QQ 账号 价格':'site:pxb7.com 王者荣耀 账号 价格'].map(q=>({d,q:q.trim()})));
+ const plans=SEARCH_DOMAINS.flatMap(d=>[d.host==='pzds.com'?'site:pzds.com/goodsDetails 王者荣耀 账号':'site:pxb7.com/seo/buy 王者荣耀 账号', 'site:'+d.host+' 王者荣耀 账号 '+(server||'苹果QQ')].map(q=>({d,q:q.trim()})));
  await Promise.all(plans.map(async({d,q})=>{
   const t=Date.now();try{
    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('search_lang','zh');
    const r=await fetch(u,{headers:{Accept:'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8500)});
    if(!r.ok){trace.push({tool:'discover_'+d.host,query:q,result:{http_status:r.status},duration_ms:Date.now()-t});return}
-   const j=await r.json();let valid=0;for(const hit of j.web?.results||[]){
+   const j=await r.json();let valid=0,hostMatched=0,productMatched=0,serverRejected=0,soldRejected=0;for(const hit of j.web?.results||[]){
     let link;try{link=new URL(hit.url)}catch{continue}
-    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host))||!isProductPage(link,d.host))continue;
+    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
-    if(KNOWN_SOLD.has(id)||results.has(link.href))continue;
+    if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href))continue;
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;
     const foundServer=full.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null;
-    if(server&&foundServer&&foundServer!==server)continue;
+    if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     const price=extractPrice(full),skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(full.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const realname=/不可二次实名|不可二改|不支持二次实名/.test(full)?false:/可二次实名|支持二次实名|可二改/.test(full)?true:null;
     results.set(link.href,{id:d.host+':'+id,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',status:'unverified',skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
    }
-   trace.push({tool:'discover_'+d.host,query:q,result:{raw_results:(j.web?.results||[]).length,detail_pages:valid},duration_ms:Date.now()-t});
+   trace.push({tool:'discover_'+d.host,query:q,result:{raw_results:(j.web?.results||[]).length,host_matched:hostMatched,product_url_matched:productMatched,server_rejected:serverRejected,known_sold_rejected:soldRejected,detail_pages:valid},duration_ms:Date.now()-t});
   }catch(e){trace.push({tool:'discover_'+d.host,query:q,result:{error:'timeout_or_network_error'},duration_ms:Date.now()-t})}
  }));
  const all=[...results.values()];
