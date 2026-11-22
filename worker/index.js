@@ -128,6 +128,20 @@ function listingGameMatches(title,description,game){
  // No game-specific evidence in the title: do not trust SEO snippet descriptions.
  return false;
 }
+function mapleEditionMatches(title,version){
+ if(!version)return true;
+ const t=String(title||'');
+ const mobile=/(?:冒险岛M|MapleStory\s*M|手游版|手机版)/i.test(t);
+ const global=/(?:国际服|Global|GMS)/i.test(t);
+ const taiwan=/(?:台服|枫之谷|TMS)/i.test(t);
+ const china=/(?:国服|盛趣)/i.test(t);
+ if(version==='手游版')return mobile;
+ if(mobile)return false;
+ if(version==='国际服')return global&&!taiwan&&!china;
+ if(version==='台服／枫之谷')return taiwan&&!global&&!china;
+ if(version==='国服')return china&&!global&&!taiwan;
+ return false;
+}
 function requirements(query,filters,game){
  const q=String(query||'');
  const budget=Number(filters.max_price)||1000;
@@ -224,7 +238,7 @@ async function discover(query,filters,env){
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href)){duplicateRejected++;continue}
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(!listingGameMatches(title,description,game)){genericRejected++;continue}if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname)){genericRejected++;continue}if(d.host==='gmmsj.com'&&!gameMatches(full,game))continue;
-    const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
+    if(game.name==='冒险岛'&&!mapleEditionMatches(title,filters.version||null)){genericRejected++;continue}const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const rawPrice=extractPrice(title);const price=rawPrice!=null&&rawPrice<10?null:rawPrice;if(price!=null)priced++;const skins=Number(title.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(title.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
@@ -292,7 +306,7 @@ function clarifyGameEdition(message,context={}){
 // Shared evidence-grounded listing pipeline for chat tool calls.
 async function agentSearchListings(query,args,env){
  const parsed=parse(query),game=detectGame(query);
- const filters={...parsed,...args,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
+ const filters={...parsed,...args,version:args?.version||String(query).match(/(?:手游版|国际服|台服／枫之谷|国服)/)?.[0]||null,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
  const discovery=await discover(query,filters,env);
  const enriched=await enrichCandidates(discovery.candidates);
  const req=game?requirements(query,filters,game):null;
@@ -330,7 +344,7 @@ if(url.pathname==='/api/chat'&&request.method==='POST'){if(!env.OPENROUTER_API_K
  const clarification=clarifyGameEdition(prompt,body.requirements||body.context||{});
  if(clarification?.needs_clarification)return json({answer:clarification.question,clarification,requirements:clarification.requirements,items:[],trace:[],status:'needs_clarification'});
  const searchPrompt=clarification?.requirements?.version?('冒险岛 '+clarification.requirements.version+' 预算'+clarification.requirements.max_price+'元 '+(clarification.requirements.profession||'')+' '+prompt):prompt;const requested=String(body.model||'').slice(0,150);const available=await listModels(env);const model=requested&&available.models.some(x=>x.id===requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;const messages=[{role:'system',content:'你是GamePilot游戏账号购买决策Agent。遇到版本不明确的游戏必须先澄清，严禁混合不同版本商品。必须先调用search_listings获取商品；可能找到搜索索引候选，但未核验在售，禁止将索引候选称为可购买商品；禁止编造商品、价格或实时库存。不要编造商品、价格、服务费、账号同一性。仅比较相似账号；不同区服不得判定同款。回复简洁中文，说明来源和交易风险。不可执行支付。'}, {role:'user',content:searchPrompt}];const trace=[];let answer='';let usage={};let items=[];try{for(let step=0;step<4;step++){const start=Date.now();const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+env.OPENROUTER_API_KEY,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:step===0?'required':'auto',temperature:0.1}),signal:AbortSignal.timeout(20000)});if(!response.ok)return json({error:'模型服务返回 '+response.status,details:(await response.text()).slice(0,180)},502);const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return json({error:'模型没有返回消息'},502);messages.push(msg);if(!msg.tool_calls?.length){answer=msg.content||'分析完成';break}for(const call of msg.tool_calls.slice(0,5)){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{}let result;
- if(call.function.name==='search_listings'){result=await agentSearchListings(searchPrompt,args,env);items=result.items||[]}
+ if(call.function.name==='search_listings'){result=await agentSearchListings(searchPrompt,{...args,version:clarification?.requirements?.version||args.version},env);items=result.items||[]}
  else if(call.function.name==='compare_prices'){const ids=Array.isArray(args.ids)?args.ids:[];result=ids.map(id=>{const x=items.find(v=>v.id===id);return x?{id,platform:x.platform,price_cny:x.price,price_evidence:x.price_evidence,source_url:x.url,fees:'unknown',total_price:'unknown',status:x.status}:{id,error:'商品不在本轮真实搜索结果中'}})}
  else if(call.function.name==='check_risks'){const ids=Array.isArray(args.ids)?args.ids:[];result=ids.map(id=>{const x=items.find(v=>v.id===id);return x?{id,realname:x.realname,stock_status:x.status,warning:x.realname===true?'索引声称可二次实名，仍需源站确认':'实名条件未核验，谨慎交易',source_url:x.url}:{id,error:'商品不在本轮真实搜索结果中'}})}
  else result={error:'未知工具'};trace.push({tool:call.function.name,args,result,mode:'OpenRouter 工具调用',duration_ms:Date.now()-start});messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)})}}return json({answer:answer||'已达到调用上限，请缩小需求',trace,items,usage,model})}catch{return json({error:'Agent 调用失败，请检查 OpenRouter 配置和网络'},502)}}
