@@ -39,7 +39,7 @@ async function discover(query,filters,env){
     if(server&&foundServer&&foundServer!==server)continue;
     const price=extractPrice(full),skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(full.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
-    const realname=/可二次实名|支持二次实名|可二改/.test(full)?true:/不可二次实名|不可二改/.test(full)?false:null;
+    const realname=/不可二次实名|不可二改|不支持二次实名/.test(full)?false:/可二次实名|支持二次实名|可二改/.test(full)?true:null;
     results.set(link.href,{id:d.host+':'+id,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',status:'unverified',skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
    }
    trace.push({tool:'discover_'+d.host,query:q,result:{raw_results:(j.web?.results||[]).length,detail_pages:valid},duration_ms:Date.now()-t});
@@ -51,7 +51,7 @@ async function discover(query,filters,env){
  if(x.price!=null){if(x.price<=filters.max_price){score+=20;reasons.push('索引价在预算内')}else{score-=30;reasons.push('索引价超预算')}}else{score-=15;reasons.push('价格未知')}
  if(filters.realname==='yes'){if(x.realname===true){score+=15;reasons.push('索引注明可二次实名')}else if(x.realname===false){score-=40;reasons.push('不满足实名条件')}else{score-=8;reasons.push('实名未知')}}
  if(x.skins!=null){score+=Math.min(12,Math.floor(x.skins/30));reasons.push('皮肤数量可提取')}
- x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;
+ x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;x.match_level=(server&&x.server!==server)||(filters.realname==='yes'&&x.realname!==true)||(x.price===null)?'incomplete':'candidate';
  }
  all.sort((a,b)=>b.match_score-a.match_score);
  return {candidates:all.slice(0,24),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
