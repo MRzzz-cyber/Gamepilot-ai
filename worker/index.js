@@ -179,7 +179,7 @@ async function enrichCandidates(candidates,env,trace=[]){
   const detailVerified=v.price!=null&&v.status!=='sold'&&v.status!=='stale'&&!wrongGame;
   const priceConflict=detailVerified&&x.price!=null&&Math.abs(v.price-x.price)>0.01;
   const price=wrongGame||gameUnconfirmed||v.status==='stale'||v.status==='sold'?null:detailVerified?v.price:x.price;
-  return {...x,status:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,detail_http_status:v.http_status||null,detail_fetch_error:v.fetch_error||null,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
+  return {...x,server:v.detail_attributes?.server||x.server,skins:v.detail_attributes?.skins??x.skins,heroes:v.detail_attributes?.heroes??x.heroes,realname:v.detail_attributes?.realname??x.realname,detail_attributes:v.detail_attributes||null,detail_summary:v.detail_attributes?.summary||null,detail_listing_id:v.detail_attributes?.listing_id||null,title:(v.detail_attributes?.title&&(/详情待核验|商品详情|源站商品详情/.test(x.title)||x.title.length<12))?v.detail_attributes.title:x.title,status:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,detail_http_status:v.http_status||null,detail_fetch_error:v.fetch_error||null,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
@@ -205,17 +205,18 @@ function detectGame(q){const text=String(q||'').toLowerCase();return GAME_CATALO
 function resolveGame(query,filters={}){
  const input=String(query||'').trim();
  const quoted=input.match(/[《「]([^》」]{2,36})[》」]/u);
- const text=input.replace(/(?:游戏账号|成品号|游戏号|账号|帐号|账户|买号)[\s\S]*$/u,'');
+ const text=input.replace(/(?:游戏账号|成品号|游戏号|账号|帐号|账户|买号|号\s*$)[\s\S]*$/u,'');
  let candidate=(quoted?.[1]||text)
   .replace(/(?:预算|不超过|低于|最多|上限|价格)?\s*[¥￥]?\s*\d{2,7}\s*(?:元|块)?\s*(?:以内|以下|左右|上下)?\s*(?:的)?/g,' ')
-  .replace(/^(?:(?:请|麻烦|可以|能不能|帮我|给我|我想|我需要|我要|想要|需要|推荐|搜索|找|买|购买|看看|求购|一下|一个|一款|一些|个|的)\s*)+/u,'')
+  .replace(/^(?:(?:请|麻烦|可以|能不能|帮我|给我|我想|我需要|我要|想要|需要|推荐|搜索|搜|找|买|购买|看看|求购|一下|一个|一款|一些|个|的)\s*)+/u,'')
   .replace(/^(?:的\s*)+/u,'').replace(/(?:游戏|的)\s*$/u,'').trim();
  // "从原神换成三角洲账号" must resolve to 三角洲, not the old game.
  candidate=candidate.split(/(?:换成|切换到|改找|改搜|改成)/u).at(-1).trim();
- const hasProductIntent=/(?:游戏账号|成品号|游戏号|账号|帐号|账户|买号)/u.test(input)||!!quoted;
+ const hasProductIntent=/(?:游戏账号|成品号|游戏号|账号|帐号|账户|买号|号\s*$)/u.test(input)||!!quoted;
  if(hasProductIntent&&candidate.length>=2&&candidate.length<=35&&!/(?:\d{2,7}\s*(?:元|块)|^(?:游戏|一个|高战力|高等级|账号)$)/u.test(candidate)){
+  const lookup=candidate.replace(/^(?:(?:苹果|安卓)(?:QQ|微信|区)|iOS区|国际服|台服|国服)\s*/gi,'').replace(/\s*(?:(?:苹果|安卓)(?:QQ|微信|区)|iOS区|国际服|台服|国服)$/gi,'').trim();
   const known=GAME_CATALOG.find(g=>g.aliases.some(a=>{
-   const v=candidate.toLowerCase(),p=a.toLowerCase();
+   const v=lookup.toLowerCase(),p=a.toLowerCase();
    return v===p||(v.startsWith(p)&&/^(?:苹果|安卓|qq|微信|国服|台服|国际服|手游|端游|pc|高战力|高等级|皮肤多|装备好|五星角色)*$/i.test(v.slice(p.length)));
   }));
   return known||{name:candidate,aliases:[candidate],server:false,universal:true};
@@ -310,7 +311,7 @@ function evaluateCandidate(x,req){
   if(h.field==='game'&&x.detail_game&&x.detail_game!==req.game)failures.push('详情游戏不匹配');else if(h.field==='game'&&!(x.game_confirmed||x.detail_game===req.game||labeledListingGame(x.title,x.description,GAME_CATALOG.find(g=>g.name===req.game)||{name:req.game,aliases:[req.game]})))failures.push('游戏不匹配');
   if(h.field==='price'&&x.price!=null&&x.price>h.max)failures.push('超过预算');
   if(h.field==='price'&&x.price==null)unknown.push('价格缺失');
-  if(h.field==='server'&&x.server&&x.server!==h.value)failures.push('区服不匹配');
+  if(h.field==='server'&&x.server&&(h.value==='苹果区'?!x.server.startsWith('苹果'):h.value==='安卓区'?!x.server.startsWith('安卓'):x.server!==h.value))failures.push('区服不匹配');
   if(h.field==='server'&&!x.server)unknown.push('区服未核实');
   if(h.field==='realname'&&x.realname===false)failures.push('不支持二次实名');
   if(h.field==='realname'&&x.realname==null)unknown.push('实名状态未核实');
@@ -576,7 +577,7 @@ async function agentReview(query,candidates,filters,env,model){
 }
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
-function parse(q){const game=resolveGame(q);const server=game?.server?(q.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||'all'):'all';const budget=q.match(/(\d{2,6})\s*(?:元|块|预算|以内)/)?.[1];return {game:game?.name||null,server,max_price:budget?Number(budget):1000,realname:/可二次实名|支持二次实名/.test(q)?'yes':'all',sort:/皮肤/.test(q)?'skins':'fit',source:'all'}}
+function parse(q){const game=resolveGame(q);const server=game?.server?(q.match(/安卓QQ|苹果QQ|安卓微信|苹果微信|苹果区|安卓区|iOS区/i)?.[0]?.replace(/iOS区/i,'苹果区')||'all'):'all';const budget=q.match(/(\d{2,6})\s*(?:元|块|预算|以内)/)?.[1];return {game:game?.name||null,server,max_price:budget?Number(budget):1000,realname:/可二次实名|支持二次实名/.test(q)?'yes':'all',sort:/皮肤/.test(q)?'skins':'fit',source:'all'}}
 // Progressive requirement collection before searching ambiguous game editions.
 // Canonical intent parser; no per-game prompt filter in demo mode.
 function interpretIntent(message,context={}){
@@ -588,7 +589,7 @@ function interpretIntent(message,context={}){
  const budgetMatch=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/u);
  const bare=text.match(/^[¥￥]?\s*(\d{2,7})\s*$/);
  const max_price=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):bare?Number(bare[1]):/不限预算|先看看价格|不知道预算/u.test(text)?100000:prior.max_price??null;
- const server=text.match(/(?:安卓QQ|苹果QQ|安卓微信|苹果微信)/u)?.[0]||(/不限区服|全部区服/u.test(text)?'all':null)||prior.server||'all';
+ const server=text.match(/(?:安卓QQ|苹果QQ|安卓微信|苹果微信|苹果区|安卓区|iOS区)/iu)?.[0]?.replace(/iOS区/i,'苹果区')||(/不限区服|全部区服/u.test(text)?'all':null)||prior.server||'all';
  const realname=/(?:不可二次实名|不支持二次实名|不可二改)/u.test(text)?'no':/(?:支持二次实名|可二次实名|可二改)/u.test(text)?'yes':prior.realname||'all';
  const version=text.match(/(?:国际服|台服|国服|日服|韩服|美服|欧服|东南亚服|怀旧服|经典服|手游版|PC版|GMS|TMS)/iu)?.[0]||prior.version||null;
  const profession=text.match(/(?:职业|职阶)\s*(?:为|是|[:：])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||prior.profession||null;
@@ -634,14 +635,14 @@ async function agentSearchListings(query,args,env){
    const sourceLabel=detailPrice?'商品详情页':'搜索索引（非实时）';
    const full=(x.title||'')+' '+(x.description||'');
    return {id:x.id,game:game.name,title:x.title,description:x.description,platform:x.platform,url:x.url,
-    price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,
+    price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,detail_summary:x.detail_summary||null,detail_listing_id:x.detail_listing_id||null,
     price_audit:{amount:x.price,currency:'CNY',source:sourceLabel,is_realtime:false,confidence:detailPrice?'medium':'low',verified_at:detailPrice?x.checked_at:null},
-    status:x.status,detail_check:x.detail_check,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,
+    status:x.status,detail_check:x.detail_check,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,detail_attributes:x.detail_attributes||null,
     match_score:x.requirement_evaluation?.score??x.match_score,requirement_evaluation:x.requirement_evaluation,
     price_conflict:x.price_conflict||false,
-    key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,
-     profession:full.match(/(?:职业|职阶)\s*(?:[:：为是])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||null,
-     power:full.match(/(?:战斗力|战力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/u)?.[1]||null},
+    key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,rank:x.detail_attributes?.rank||null,noble:x.detail_attributes?.noble??null,level:x.detail_attributes?.level??null,
+     profession:x.detail_attributes?.profession||full.match(/(?:职业|职阶)\s*(?:[:：为是])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||null,
+     power:x.detail_attributes?.power||full.match(/(?:战斗力|战力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/u)?.[1]||null},
     version_label:filters.requested_version?'用户要求'+filters.requested_version+' · 版本未核验':'版本未核验'};
   });
  stages.push({stage:'hard_filter_and_rank',count:items.length});
@@ -649,7 +650,7 @@ async function agentSearchListings(query,args,env){
  const excludedStatuses=new Set(['sold','stale','wrong_game','game_unconfirmed']);
  const admissible=x=>(x.game_confirmed||x.detail_game===game?.name)&&(!x.detail_game||x.detail_game===game?.name)&&!excludedStatuses.has(x.status);
  const leadView=(x,category)=>({
-  game:game?.name||null,platform:x.platform,title:x.title,url:x.url,
+  game:game?.name||null,platform:x.platform,title:x.title,url:x.url,id:x.id,detail_summary:x.detail_summary||null,detail_attributes:x.detail_attributes||null,detail_listing_id:x.detail_listing_id||null,
   price:x.price??null,category,detail_status:x.detail_check||'not_checked',
   http_status:x.detail_http_status||null,fetch_error:x.detail_fetch_error||null,
   reason:x.price==null?(x.detail_http_status?'源站详情请求失败：HTTP '+x.detail_http_status:x.detail_fetch_error?'源站详情抓取失败：'+x.detail_fetch_error:x.detail_check==='not_checked'?'尚未读取详情页':x.status==='sold'?'商品已售出':x.status==='stale'?'商品信息已过期':x.status==='wrong_game'||x.status==='game_unconfirmed'?'游戏身份未核实':'详情页未识别到可靠价格字段'):(x.verification||'其他条件未通过'),
