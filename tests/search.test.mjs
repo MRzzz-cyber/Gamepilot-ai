@@ -13,8 +13,8 @@ function runtime(){
   if(url.hostname==='api.search.brave.com'){
    const q=url.searchParams.get('q')||'';calls.push(q);
    const host=q.match(/site:([^\s]+)/)?.[1];
-   const game=q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
-   const matches=host==='pzds.com'&&game?[{
+   const game=q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
+   const matches=host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game?[{
     url:'https://www.pzds.com/goodsDetails/'+({三角洲:'TRI123',原神:'GEN123',没价:'NOP123',阻断:'BAD123'}[game])+'/6',
     title:game+'游戏账号'+(game==='没价'||game==='阻断'?'':' 商品售价 ¥899'),
     description:'所属游戏：'+game
@@ -24,8 +24,8 @@ function runtime(){
   }
   if(url.hostname==='www.pzds.com'){
    if(url.pathname.includes('BAD123'))return new Response('Access denied',{status:403});
-   const game=url.pathname.includes('GEN')?'原神':url.pathname.includes('NOP')?'没价':'三角洲';
-   const price=game==='没价'?'':' 商品售价：¥899';
+   const game=url.pathname.includes('DEMO')?'七条测试':url.pathname.includes('GEN')?'原神':url.pathname.includes('NOP')?'没价':'三角洲';
+   const price=game==='没价'||(game==='七条测试'&&!url.pathname.includes('DEMO1/6'))?'':' 商品售价：¥899';
    return new Response('<html><title>'+game+'账号 商品详情</title><body>商品编号 12345 '+game+' 账号'+price+'</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   }
   throw Error('Unexpected fetch '+url);
@@ -102,4 +102,16 @@ test('unpriced and blocked results preserve source links without inventing price
   assert.equal(res.data.unpriced_leads[0].http_status,http);
   assert.ok(res.data.unpriced_leads[0].url.startsWith('https://www.pzds.com/goodsDetails/'));
  }
+});
+
+test('seven discovered leads remain visible as one priced and six unpriced source cards',async()=>{
+ const {worker}=runtime();
+ const response=await post(worker,'/api/search',{query:'1000元以内的七条测试账号',filters:{}});
+ assert.equal(response.status,200);
+ assert.equal(response.data.lead_audit.discovered,7);
+ assert.equal(response.data.candidates.length,1);
+ assert.equal(response.data.unpriced_leads.length,6);
+ assert.equal(response.data.excluded_leads.length,0);
+ assert.ok(response.data.unpriced_leads.every(x=>x.price===null&&x.url.startsWith('https://www.pzds.com/goodsDetails/')));
+ assert.ok(response.data.unpriced_leads.every(x=>x.reason.includes('价格字段')));
 });
