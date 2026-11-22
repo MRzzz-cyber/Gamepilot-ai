@@ -12,8 +12,20 @@ function structuredOffers(html){
 function gmmsjDetail(html){
  const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
  const status=/(?:浏览量|收藏量)[\s\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
- const m=body.match(/(?:商品类别|角色性别|保障类型)[\s\S]{0,900}?[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/);
- return {status,price:m?Number(m[1]):null,price_evidence:m?'gmmsj_detail_visible_price':'unknown'};
+ // Mobile G买卖 pages often show the main price BEFORE the product title and metadata.
+ // Require the product number or account product context, not a random price from recommendations.
+ const productContext=/(?:商品详情|编号\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
+ const candidates=[];
+ if(productContext){
+  const m=body.match(/(?:商品详情[\s\S]{0,350}?|库存\s*\d+[\s\S]{0,80}?)[¥￥]\s*([1-9]\d{1,6}(?:\.\d{1,2})?)/);
+  if(m)candidates.push(Number(m[1]));
+  const beforeTitle=body.match(/[¥￥]\s*([1-9]\d{1,6}(?:\.\d{1,2})?)\s*(?:库存\s*\d+\s*)?(?:账号|\[|【)/);
+  if(beforeTitle)candidates.push(Number(beforeTitle[1]));
+  const labeled=body.match(/(?:商品售价|出售价格|售价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{1,6}(?:\.\d{1,2})?)/);
+  if(labeled)candidates.push(Number(labeled[1]));
+ }
+ const price=candidates.find(x=>x>=10&&x<=1000000)??null;
+ return {status,price,price_evidence:price!=null?'gmmsj_detail_visible_price':'unknown'};
 }
 function extractDetailPrice(html){
  const offers=structuredOffers(html);const c=offers.find(o=>!o.currency||o.currency==='CNY');if(c)return {price:c.price,price_evidence:'detail_structured',availability:c.availability};
@@ -150,13 +162,16 @@ const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com'
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\/detail_[a-z0-9]+\.shtml$/i.test(p);if(domain==='5173.com')return (/(?:goods?|product|detail|item|sale|buy|account|game)/i.test(p)&&p.split('/').filter(Boolean).length>=2)||/\/(?:[a-z0-9_-]+\/){2,}[a-z0-9_-]{8,}(?:\.html?)?$/i.test(p);return false}
 function extractPrice(s){
  const t=String(s||'').replace(/,/g,'').replace(/\s+/g,' ');
- // Only explicit listing prices; never infer prices from levels, IDs, views or generic platform copy.
+ // Search snippets contain levels, skill counts and other numbers. Require a price label
+ // directly adjacent to the amount, or an explicit currency sign; never infer from bare "元".
  const patterns=[
-  /(?:售价|现价|到手价|商品价格|标价|卖价|参考价|价格)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\.\d{1,2})?)\s*(?:元)?/gi,
-  /[¥￥]\s*([1-9]\d{0,5}(?:\.\d{1,2})?)/g,
-  /([1-9]\d{0,5}(?:\.\d{1,2})?)\s*元(?:\s|$|[，。；])/g
+  /(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价|标价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\.\d{1,2})?)(?!\s*(?:级|s|S|刀|双刀))/g,
+  /[¥￥]\s*([1-9]\d{0,5}(?:\.\d{1,2})?)(?!\s*(?:级|s|S|刀|双刀))/g
  ];
- for(const re of patterns){for(const m of t.matchAll(re)){const v=Number(m[1]);if(Number.isFinite(v)&&v>=1&&v<=1000000)return v}}
+ for(const re of patterns)for(const m of t.matchAll(re)){
+  const v=Number(m[1]),context=t.slice(Math.max(0,m.index-35),m.index+65);
+  if(v>=10&&v<=1000000&&!/(?:优惠券|返现|满减|运费|服务费)/.test(context))return v;
+ }
  return null;
 }
 function isGenericPage(title,description,game){
