@@ -1,7 +1,7 @@
 // Fail closed: historical and synthetic records are not live inventory.
 const inventory=[];
 const KNOWN_SOLD=new Set(['C8YDZP']);
-const HOSTS=new Set(['www.pzds.com','pzds.com','www.5173.com','5173.com','www.gmmsj.com','gmmsj.com']);
+const HOSTS=new Set(['www.pzds.com','pzds.com','www.5173.com','5173.com','shop.5173.com','s.5173.com','old.5173.com','www.gmmsj.com','gmmsj.com']);
 function decodeEntities(s){return String(s||'').replace(/&quot;|&#34;/g,'"').replace(/&amp;/g,'&').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>')}
 function structuredOffers(html){
  const blocks=[...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].slice(0,12);
@@ -250,10 +250,17 @@ function searchPlans(game,filters){
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){
- const p=u.pathname;
+ const p=u.pathname,h=u.hostname;
  if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);
- if(domain==='gmmsj.com')return /\/detail_[a-z0-9]+\.shtml$/i.test(p);
- if(domain==='5173.com')return /(?:goods?|product|detail|item|sale|account|game|trade|order)/i.test(p)&&p.split('/').filter(Boolean).length>=2;
+ if(domain==='gmmsj.com'){
+  if(/\/detail_[a-z0-9]+\.shtml$/i.test(p))return true;
+  return /^\/h5\/goods\/detail\/index\.html$/i.test(p)&&/^\d{12,50}$/.test(u.searchParams.get('book_id')||'');
+ }
+ if(domain==='5173.com'){
+  if(!['5173.com','www.5173.com','shop.5173.com','s.5173.com','old.5173.com'].includes(h))return false;
+  // Do not mistake search/category pages for individual goods. Require a detail path and stable id.
+  return /\/(?:goods?|products?|details?|items?)\b/i.test(p)&&/(?:[a-z0-9]{8,}|[0-9]{6,})/i.test(p.split('/').filter(Boolean).at(-1)||'');
+ }
  return false;
 }
 function extractPrice(s,opts={}){
