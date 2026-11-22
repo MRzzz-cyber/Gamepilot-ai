@@ -632,6 +632,33 @@ async function agentSearchListings(query,args,env){
  });
  const unpricedLeads=enriched.filter(x=>admissible(x)&&x.price==null).map(x=>leadView(x,'price_unknown'));
  const excludedLeads=enriched.filter(x=>!admissible(x)||x.price!=null&&!items.some(y=>y.url===x.url)).map(x=>leadView(x,'excluded'));
+ const pricingGate={
+  discovered:enriched.length,
+  with_price:enriched.filter(x=>x.price!=null).length,
+  correct_game_priced:enriched.filter(x=>admissible(x)&&x.price!=null).length,
+  within_budget:enriched.filter(x=>admissible(x)&&x.price!=null&&x.price<=req.budget).length,
+  over_budget:enriched.filter(x=>admissible(x)&&x.price!=null&&x.price>req.budget).length,
+  game_or_status_rejected:enriched.filter(x=>!admissible(x)).length,
+  price_missing:unpricedLeads.length,
+  matched:items.length,
+  budget:req.budget
+ };
+ // These are stage outcomes, NOT an assertion that search matched a purchasable item.
+ for(const step of stages){
+  step.outcome=step.skipped?'skipped':
+   step.stage==='hard_filter_and_rank'?(items.length?'matched':'no_match'):
+   step.stage==='browser_render'?(step.count?step.priced?'recovered':'no_price_recovered':'not_used'):
+   step.stage==='native_5173'?(step.status==='rendered_search'?'searched':'blocked'):
+   step.stage==='verify_details'?(step.priced?'price_found':step.count?'price_missing':'not_checked'):
+   step.count?'discovered':'empty';
+ }
+ const zeroReason=items.length?null:
+  !env.BRAVE_SEARCH_API_KEY?'search_not_configured':
+  !discovery.candidates.length?'no_product_leads':
+  !pricingGate.with_price?'no_price_evidence':
+  pricingGate.over_budget&&pricingGate.correct_game_priced===pricingGate.over_budget?'over_budget':
+  !pricingGate.correct_game_priced?'identity_or_availability_unverified':
+  pricingGate.within_budget?'other_constraints_unmet':'constraints_or_identity_not_verified';
  const detailDiagnostics={
   source_health:SEARCH_DOMAINS.map(d=>({platform:d.platform,domain:d.host,
    leads:discovery.candidates.filter(x=>x.platform===d.platform).length,
@@ -647,8 +674,8 @@ async function agentSearchListings(query,args,env){
   excluded_leads:excludedLeads,
   audit_counts:{discovered:enriched.length,qualified:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}
  };
- const searchDiagnostics={...detailDiagnostics,browser:browserSummary,native_5173:native5173?.result||null,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
- return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,zero_result_reason:items.length?null:!env.BRAVE_SEARCH_API_KEY?'search_not_configured':!discovery.candidates.length?'no_product_leads':!enriched.some(x=>x.price!=null)?'no_price_evidence':!editionSafe.length?'edition_evidence_missing':'constraints_or_identity_not_verified'},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
+ const searchDiagnostics={...detailDiagnostics,filter_gate:pricingGate,browser:browserSummary,native_5173:native5173?.result||null,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
+ return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,result_status:items.length?'matched':'no_matches',zero_result_reason:zeroReason,filter_gate:pricingGate},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
 async function watchPrice(raw,env){
@@ -698,7 +725,7 @@ if(url.pathname==='/api/search'&&request.method==='POST'){
  const filters={...parse(query),...incoming,game:game.name};
  const result=await agentSearchListings(query,filters,env);
  const candidates=result.items; // Canonical card schema is produced once by the Harness.
- return json({items:result.items,candidates,coverage:result.coverage,requirements:filters,filters,discovery_status:result.harness?.zero_result_reason||'searched',summary:candidates.length?'找到 '+candidates.length+' 条有价格证据的商品线索；在售状态请以源站为准。':'未获得符合条件且有价格证据的商品，不能据此判断平台无货。',agent:{status:'harness',summary:'由 Progressive Search Harness 执行，不依赖 OpenRouter。'},trace:result.trace,harness:result.harness,search_diagnostics:result.search_diagnostics,discovered_count:result.discovered_count,priced_count:result.priced_count,unpriced_leads:result.unpriced_leads,excluded_leads:result.excluded_leads,lead_audit:result.lead_audit});
+ return json({items:result.items,candidates,coverage:result.coverage,requirements:filters,filters,discovery_status:result.harness?.zero_result_reason||'searched',summary:candidates.length?'找到 '+candidates.length+' 条满足硬条件的有价线索，商品在售状态仍需源站核验。':({over_budget:'找到商品价格，但符合游戏身份的有价线索均超过预算。',identity_or_availability_unverified:'检索到商品价格，但没有可确认游戏身份及有效状态的推荐商品。',no_price_evidence:'发现商品详情线索，但尚未获得可信价格。',other_constraints_unmet:'有预算内线索，但其他硬条件未满足。'})[result.harness?.zero_result_reason]||'没有商品通过本次硬条件筛选；并不代表平台无货。',agent:{status:'harness',summary:'由 Progressive Search Harness 执行，不依赖 OpenRouter。'},trace:result.trace,harness:result.harness,search_diagnostics:result.search_diagnostics,discovered_count:result.discovered_count,priced_count:result.priced_count,unpriced_leads:result.unpriced_leads,excluded_leads:result.excluded_leads,lead_audit:result.lead_audit});
 }
 if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);
  // Reconstruct requirements from prior chat turns when the UI sends history instead of a separate context object.
@@ -716,7 +743,7 @@ if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await 
   const searchText=[req.game,req.server||'',req.profession||'',...(req.preferences||[])].filter(Boolean).join(' ');
   const result=await agentSearchListings(searchText,req,env);
   const reason=result.harness?.zero_result_reason;
-  const messages={search_not_configured:'商品搜索服务尚未配置，不能判断市场缺货。',no_product_leads:'已尝试初始检索和补充检索，仍未发现可确认的商品详情链接。不能判断市场无货。',no_price_evidence:'找到商品线索，但未取得可靠的价格证据。',edition_evidence_missing:'Demo 模式不按版本过滤，请以源站详情确认版本。',constraints_or_identity_not_verified:'找到商品线索，但未有商品通过身份、预算和属性筛选。'};
+  const messages={search_not_configured:'搜索服务未配置，不能判断市场缺货。',no_product_leads:'尚未找到可确认的商品详情链接，不能判断市场无货。',no_price_evidence:'发现商品线索，但没有可靠的商品价格，暂不能判断是否符合预算。',over_budget:'找到有价格证据的商品，但当前报价均超出预算。',identity_or_availability_unverified:'发现有参考价格的线索，但游戏身份或商品状态未通过核验。',other_constraints_unmet:'找到预算内商品线索，但还有其他硬条件未满足。',constraints_or_identity_not_verified:'有商品线索，但当前没有商品满足所有硬性条件。'};
   return json({answer:result.items.length?'找到 '+result.items.length+' 条有价格证据的商品线索（Demo 暂不按版本过滤，版本和在售状态需以源站为准）。':messages[reason]||'本轮未获得可展示的商品，请查看诊断信息。',items:result.items,unpriced_leads:result.unpriced_leads,excluded_leads:result.excluded_leads,lead_audit:result.lead_audit,requirements:req,trace:result.trace,coverage:result.coverage,search_diagnostics:result.search_diagnostics,harness:result.harness,status:result.items.length?'results':'search_incomplete',suggested_replies:[]});
  }
  return json({error:'需求尚未完整解析',status:'needs_clarification',requirements:clarification?.requirements||prior},400);
