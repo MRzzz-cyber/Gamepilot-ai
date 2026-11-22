@@ -238,7 +238,7 @@ function evaluateCandidate(x,req){
  return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
 }
 function searchPlans(game,filters){
- const version=''; // DEMO: discover all editions; do not constrain search terms by region.
+ const version=''; // Demo: game edition is display metadata, not a discovery constraint.
  const server=filters.server&&filters.server!=='all'?String(filters.server):'';
  const profession=String(filters.profession||'').trim();
  const editions=version==='国际服'?['GMS','Global']:version==='台服／枫之谷'?['TMS','枫之谷']:version==='手游版'?['冒险岛M']:version?[version]:[];
@@ -475,7 +475,20 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  ];
  const checks=cases.map(([query,expected])=>{const game=resolveGame(query),clarification=clarifyGameEdition(query)||clarifyGeneralGame(query),plans=game?searchPlans(game,{}):[];return {query,game:game?.name||null,queries:plans.length,clarification_ready:!!clarification,passed:game?.name===expected&&plans.length>0}});
  return json({version:'universal-smoke-v1',checks,passed:checks.every(x=>x.passed),note:'离线确定性逻辑测试，不代表真实搜索服务或商品价格可用'});
-}if(url.pathname==='/api/acceptance'&&request.method==='GET'){const started=Date.now();const game=GAME_CATALOG.find(g=>g.name==='冒险岛');const feed=await gmmsjCategoryLeads(game,{version:'国服'});const sample=feed.items.slice(0,3);const checks=await Promise.all(sample.map(async x=>{const v=await verifyListing(x.url);return {url:x.url,title:x.title,price:v.price??null,status:v.status,detail_game:v.detail_game||null,updated_at:v.updated_at||null,detail_check:v.message||null}}));return json({version:'2026-11-23-feed-acceptance-v1',source:'G买卖 冒险岛国服',category_status:feed.diagnostic,category_links:feed.links_found||0,unique_product_links:feed.items.length,detail_samples:checks,elapsed_ms:Date.now()-started,passed:feed.items.length>0&&checks.some(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'),note:'仅检查公开商品页面；不代表库存或购买能力得到确认。'});}if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/price-watch'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await watchPrice(String(b.url||'').slice(0,500),env))}if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/search'&&request.method==='POST'){
+}if(url.pathname==='/api/acceptance'&&request.method==='GET'){const started=Date.now();const game=GAME_CATALOG.find(g=>g.name==='冒险岛');const feed=await gmmsjCategoryLeads(game,{version:'国服'});const sample=feed.items.slice(0,3);const checks=await Promise.all(sample.map(async x=>{const v=await verifyListing(x.url);return {url:x.url,title:x.title,price:v.price??null,status:v.status,detail_game:v.detail_game||null,updated_at:v.updated_at||null,detail_check:v.message||null}}));return json({version:'2026-11-23-feed-acceptance-v1',source:'G买卖 冒险岛国服',category_status:feed.diagnostic,category_links:feed.links_found||0,unique_product_links:feed.items.length,detail_samples:checks,elapsed_ms:Date.now()-started,passed:feed.items.length>0&&checks.some(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'),note:'仅检查公开商品页面；不代表库存或购买能力得到确认。'});}if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/price-watch'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await watchPrice(String(b.url||'').slice(0,500),env))}if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/analyze'&&request.method==='POST'){
+ let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
+ const query=String(body.query||'').slice(0,1000);
+ const game=resolveGame(query,{game:body.game});
+ if(!game)return json({error:'没有明确的游戏名称'},400);
+ const candidates=(Array.isArray(body.candidates)?body.candidates:[]).slice(0,15).filter(x=>{
+  try{const u=new URL(String(x.url||''));return u.protocol==='https:'&&HOSTS.has(u.hostname)&&x.game===game.name&&Number(x.price)>0}catch{return false}
+ }).map(x=>({id:String(x.id||'').slice(0,100),game:game.name,title:String(x.title||'').slice(0,250),platform:String(x.platform||'').slice(0,80),price:Number(x.price),server:x.server||null,skins:x.skins??null,realname:x.realname??null,match_score:Number(x.match_score)||0}));
+ const chosen=String(body.model||'').slice(0,120);
+ const result=await agentReview(query,candidates,{game:game.name,max_price:Number(body.max_price)||null},env,chosen||undefined);
+ const msg=result.status==='completed'?result.summary:result.status==='skipped'?'没有可分析的商品或未配置 OpenRouter API。':'模型分析暂不可用：'+(result.reason||'unknown');
+ return json({answer:msg,model:result.model||null,usage:result.usage||null,notes:result.notes||[],status:result.status,analyzed_count:candidates.length});
+}
+if(url.pathname==='/api/search'&&request.method==='POST'){
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000),incoming=body.filters||{};
  const game=resolveGame(query,incoming);
