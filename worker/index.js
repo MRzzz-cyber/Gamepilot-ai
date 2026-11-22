@@ -71,7 +71,7 @@ async function enrichCandidates(candidates){
   const v=checks.get(x.url);
   if(!v)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
   const price=v.price!=null?v.price:(v.status==='stale'?null:x.price);
-  return {...x,status:v.status,updated_at:v.updated_at||null,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,price_source_label:v.price!=null?'商品详情提取价（非实时）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
+  return {...x,status:v.status,updated_at:v.updated_at||null,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:(v.status==='stale'?'stale_listing':x.price_evidence),price_source_label:v.price!=null?'商品详情提取价（非实时）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
@@ -187,7 +187,7 @@ async function discover(query,filters,env){
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname)){genericRejected++;continue}if(d.host==='gmmsj.com'&&!gameMatches(full,game))continue;
     const foundServer=game.server?(full.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
-    if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const price=extractPrice(full);if(price!=null)priced++;const skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
+    if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const rawPrice=extractPrice(full);const price=rawPrice!=null&&rawPrice<10?null:rawPrice;if(price!=null)priced++;const skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(full.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const realname=/不可二次实名|不可二改|不支持二次实名/.test(full)?false:/可二次实名|支持二次实名|可二改/.test(full)?true:null;
     results.set(link.href,{id:d.host+':'+id,game:game.name,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',price_source_label:price===null?'价格未获取':'搜索索引参考价（非实时）',status:'unverified',skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
