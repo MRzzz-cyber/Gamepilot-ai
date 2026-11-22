@@ -245,3 +245,12 @@ test('on-demand verification falls back to Browser Run for blocked G买卖 detai
  assert.equal(result.data.steps[0].http_status,403);
  assert.equal(result.data.steps[1].status,'rendered');
 });
+
+test('search response retains 苹果区 intent even when the old sidebar sent server=all',async()=>{
+ const {worker}=runtime();
+ const result=await post(worker,'/api/search',{query:'找1000元以内苹果区王者荣耀账号',filters:{game:'原神',server:'all'}});
+ assert.equal(result.status,200);
+ assert.equal(result.data.filters.game,'王者荣耀');
+ assert.equal(result.data.filters.server,'苹果区');
+ assert.ok(result.data.harness.skill_flow.steps.some(x=>x.id==='requirements-parsing'));
+});
