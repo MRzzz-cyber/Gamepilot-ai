@@ -166,3 +166,15 @@
 .leadVerifyButton:hover:not(:disabled){background:#245449}
 .productCard .cardFoot a{font-size:11px}
 @media(max-width:800px){.leadAttributeGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.leadVerifyButton{padding:10px}}
+
+/* Runtime Skill contract is expandable; static diagrams never imply execution. */
+.harnessSkillAudit{margin-top:13px;border:1px solid #2c5355;border-radius:9px;overflow:hidden;background:#102f36}
+.harnessSkillAudit summary{display:flex;align-items:center;gap:7px;padding:11px;font-size:11px;font-weight:750;cursor:pointer;color:#b6e9de;list-style:none}
+.harnessSkillAudit summary::-webkit-details-marker{display:none}
+.harnessSkillAudit summary svg:last-child{margin-left:auto}
+.harnessSkillAudit[open] summary svg:last-child{transform:rotate(180deg)}
+.harnessSkillRows{padding:4px 11px 7px;border-top:1px solid #31515b}
+.harnessSkillRows>div{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #284953;font-size:10px;color:#cee7e5}
+.harnessSkillRows>div:last-child{border-bottom:0}
+.harnessSkillRows span{color:#83c7b8;text-align:right}
+.harnessSkillRows p,.harnessSkillAudit>p{font-size:10px;line-height:1.65;color:#93b1b9;padding:0 11px;margin:10px 0}
