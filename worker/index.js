@@ -26,20 +26,20 @@ async function discover(query,filters,env){
  for(const d of SEARCH_DOMAINS){
   const start=Date.now();
   try{
-   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',d.query+' '+terms);u.searchParams.set('count','8');
+   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q','site:'+d.host+' 王者荣耀 账号');u.searchParams.set('count','20');u.searchParams.set('country','CN');u.searchParams.set('search_lang','zh');
    const r=await fetch(u,{headers:{'Accept':'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8000)});
    if(!r.ok){trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{http_status:r.status},duration_ms:Date.now()-start});continue}
-   const data=await r.json();let count=0;
+   const data=await r.json();let count=0,rawCount=(data.web?.results||[]).length,detailCount=0,pricedCount=0,serverRejected=0;
    for(const item of data.web?.results||[]){
     let link;try{link=new URL(item.url)}catch{continue}
-    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host))||!isProductPage(link,d.host))continue;
+    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host))||!isProductPage(link,d.host))continue;detailCount++;
     const title=cleanText(item.title),snippet=cleanText(item.description);
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop()||'unknown';
     if(KNOWN_SOLD.has(id))continue;
     if(candidates.some(x=>x.url===link.href))continue;
     const combined=title+' '+snippet;
     const foundServer=combined.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null;
-    if(filters.server!=='all'&&foundServer&&foundServer!==filters.server)continue;
+    if(filters.server!=='all'&&foundServer&&foundServer!==filters.server){serverRejected++;continue}
     let price=extractPrice(combined);let priceEvidence='search_snippet';let detailStatus='not_checked';
     if(d.host==='pzds.com'){
       try{const detail=await fetch(link.href,{redirect:'manual',signal:AbortSignal.timeout(4500),headers:{Accept:'text/html'}});
@@ -52,14 +52,14 @@ async function discover(query,filters,env){
         }else detailStatus='blocked_or_redirected';
       }catch{detailStatus='request_failed'}
     }
-    if(price===null)continue;
+    if(price!==null)pricedCount++;
     if(price!=null&&Number(filters.max_price)>0&&price>Number(filters.max_price))continue;
-    candidates.push({id:d.host+':'+id,platform:d.platform,url:link.href,title,description:snippet,server:foundServer,price,price_evidence:priceEvidence,detail_status:detailStatus,source:'公开页面或搜索索引 · 未核验',status:'unverified',discovered_at:new Date().toISOString(),verification:'搜索引擎缓存，不代表在售',kind:'discovered',heroes:null,skins:null,rare:'未核验',realname:null,time:'发现时间：'+new Date().toLocaleDateString('zh-CN')});count++;
+    candidates.push({id:d.host+':'+id,platform:d.platform,url:link.href,title,description:snippet,server:foundServer,price,price_evidence:price===null?'unknown':priceEvidence,detail_status:detailStatus,source:'公开页面或搜索索引 · 未核验',status:'unverified',discovered_at:new Date().toISOString(),verification:'搜索引擎缓存，不代表在售',kind:'discovered',heroes:null,skins:null,rare:'未核验',realname:null,time:'发现时间：'+new Date().toLocaleDateString('zh-CN')});count++;
    }
-   trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{candidates:count},duration_ms:Date.now()-start});
+   trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{raw_results:rawCount,detail_pages:detailCount,priced:pricedCount,server_rejected:serverRejected,candidates:count},duration_ms:Date.now()-start});
   }catch(e){trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{error:'请求失败或超时'},duration_ms:Date.now()-start})}
  }
- return {candidates:candidates.slice(0,12),trace,reason:candidates.length?'found':'no_priced_details',message:candidates.length?'已筛选有索引价格的商品详情页；价格与在售状态仍需核验':'未发现同时具有商品详情链接和明确索引价格的候选。未展示首页、教程或无价页面。'};
+ return {candidates:candidates.slice(0,12),trace,reason:candidates.length?'found':'no_detail_candidates',message:candidates.length?'发现商品详情线索，价格和在售状态未核验':'没有发现可识别的商品详情页；不代表市场无货，请查看搜索诊断。'};
 }
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
