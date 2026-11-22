@@ -33,6 +33,14 @@ function visibleDetailPrice(html){
  }
  return {price:null,price_evidence:'unknown'};
 }
+function listingUpdatedAt(html){
+ const plain=decodeEntities(String(html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const m=plain.match(/(?:更新|更新时间|上架时间|发布时间)\s*[:：]?\s*(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+ if(!m)return null;
+ const date=new Date(Date.UTC(Number(m[1]),Number(m[2])-1,Number(m[3])));
+ return Number.isFinite(date.getTime())?date.toISOString():null;
+}
+function isStaleListing(updatedAt,days=180){return !!updatedAt&&Date.now()-Date.parse(updatedAt)>days*86400000}
 async function verifyListing(raw){
  let u;try{u=new URL(raw)}catch{return {status:'invalid_url',message:'无效商品链接'}}
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port)return {status:'unsupported_source',message:'不支持此域名'};
@@ -44,12 +52,12 @@ async function verifyListing(raw){
  if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（可能需要移动端或登录）',http_status:r.status,source_url:u.href};
  const html=(await r.text()).slice(0,500000);
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
- const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;
+ const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;const updatedAt=listingUpdatedAt(html);const stale=isStaleListing(updatedAt);
  const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格)/.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
  // Search only the page title and explicit structured availability for strong sold evidence.
  const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
  const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
- return {status:sold?'sold':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
+ return {status:sold?'sold':stale?'stale':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':stale?'商品最后更新超过180天，不能作为当前可售报价':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',updated_at:updatedAt,price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
  }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates){
@@ -62,14 +70,14 @@ async function enrichCandidates(candidates){
  return candidates.map(x=>{
   const v=checks.get(x.url);
   if(!v)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
-  const price=v.price!=null?v.price:x.price;
-  return {...x,status:v.status,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,price_source_label:v.price!=null?'商品详情提取价（非实时）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
+  const price=v.price!=null?v.price:(v.status==='stale'?null:x.price);
+  return {...x,status:v.status,updated_at:v.updated_at||null,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,price_source_label:v.price!=null?'商品详情提取价（非实时）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
  const hosts=['盼之账号','5173','G买卖'];
- const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,unpriced:x.filter(c=>c.price==null).length,detail_fetch_priced:x.filter(c=>c.detail_price!=null&&c.price_evidence!=='search_snippet').length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,enabled:SEARCH_DOMAINS.find(d=>d.platform===platform)?.enabled!==false,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','5173':'5173.com','G买卖':'gmmsj.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
- return {platforms,totals:{discovered:candidates.length,with_price:candidates.filter(c=>c.price!=null).length,detail_checked:candidates.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:candidates.filter(c=>c.detail_price!=null).length,listed:candidates.filter(c=>c.status==='listed').length,sold:candidates.filter(c=>c.status==='sold').length}};
+ const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,unpriced:x.filter(c=>c.price==null).length,detail_fetch_priced:x.filter(c=>c.detail_price!=null&&c.price_evidence!=='search_snippet').length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,stale:x.filter(c=>c.status==='stale').length,enabled:SEARCH_DOMAINS.find(d=>d.platform===platform)?.enabled!==false,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','5173':'5173.com','G买卖':'gmmsj.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
+ return {platforms,totals:{discovered:candidates.length,with_price:candidates.filter(c=>c.price!=null).length,detail_checked:candidates.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:candidates.filter(c=>c.detail_price!=null).length,listed:candidates.filter(c=>c.status==='listed').length,sold:candidates.filter(c=>c.status==='sold').length,stale:candidates.filter(c=>c.status==='stale').length}};
 }
 
 const GAME_CATALOG=[
@@ -235,7 +243,7 @@ async function agentSearchListings(query,args,env){
  const discovery=await discover(query,filters,env);
  const enriched=await enrichCandidates(discovery.candidates);
  const req=game?requirements(query,filters,game):null;
- const items=enriched.map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
+ const items=enriched.map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
  return {items,coverage:coverageReport(enriched,discovery.trace),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/search'&&request.method==='POST'){
@@ -245,7 +253,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  const game=detectGame(query);const req=game?requirements(query,filters,game):null;const discovery=await discover(query,filters,env);
  const requested=String(body.model||'').slice(0,150);
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
- const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);coverage.search_diagnostics={requests:discovery.trace.length,http_errors:discovery.trace.filter(t=>t.result?.http_status).length,search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),generic_rejected:discovery.trace.reduce((n,t)=>n+(t.result?.generic_rejected||0),0),duplicates:discovery.trace.reduce((n,t)=>n+(t.result?.duplicate_rejected||0),0),snippet_priced:discovery.trace.reduce((n,t)=>n+(t.result?.priced_in_snippet||0),0)};const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
+ const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);coverage.search_diagnostics={requests:discovery.trace.length,http_errors:discovery.trace.filter(t=>t.result?.http_status).length,search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),generic_rejected:discovery.trace.reduce((n,t)=>n+(t.result?.generic_rejected||0),0),duplicates:discovery.trace.reduce((n,t)=>n+(t.result?.duplicate_rejected||0),0),snippet_priced:discovery.trace.reduce((n,t)=>n+(t.result?.priced_in_snippet||0),0)};const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.status!=='stale'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
  const noteMap=new Map(); // Disable freeform per-item AI claims until attribute-level evidence checks are implemented.
  const candidates=display.map(x=>({...x,agent_note:noteMap.get(x.id)||null,price_audit:{amount:x.price,currency:'CNY',source:x.price_evidence?.startsWith('detail_')?'商品详情页': '搜索引擎索引',is_realtime:false,verified_at:x.checked_at||null,confidence:x.price_evidence?.startsWith('detail_')?'medium':'low',warning:x.price_conflict?'索引价格与详情价格冲突':null},key_attributes:{game:x.game,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,profession:(x.title+' '+x.description).match(/(?:职业|职阶)\s*[:：为是]?\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1]||null,power:(x.title+' '+x.description).match(/(?:战力|战斗力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/)?.[1]||null}}));
  return json({items:[],candidates,coverage,requirements:req,rejected_count:evaluated.filter(x=>x.requirement_evaluation?.fit==='rejected').length,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
