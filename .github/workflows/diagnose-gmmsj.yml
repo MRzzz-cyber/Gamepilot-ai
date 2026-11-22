@@ -34,7 +34,7 @@ jobs:
           try{
             const {readFileSync}=await import('node:fs');
             const source=readFileSync('worker/index.js','utf8');
-            const parsed=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {gmmsjCategoryLeads,gmmsjCardEvidence,verifyListing}') (fetch,URL,Response,AbortSignal);
+            const parsed=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {gmmsjCategoryLeads,gmmsjCardEvidence,verifyListing,worker}') (fetch,URL,Response,AbortSignal);
             const list=(await (await fetch('https://www.gmmsj.com/dy/5_zh.shtml')).text());
             const target='00005000000017951759544860003785';
             const index=list.indexOf('data-bookid="'+target+'"');
@@ -46,6 +46,9 @@ jobs:
             const selected=leads.items.find(x=>x.url.includes(target));
             const detail=await parsed.verifyListing('https://www.gmmsj.com/dy/5_zh/detail_'+target+'.shtml');
             console.log('CARD_PRICE_CONTEXT '+JSON.stringify({priceOccurrences:[...card.matchAll(/1700[.]00/g)].slice(0,9).map(m=>card.slice(Math.max(0,m.index-130),m.index+220).replace(/\s+/g,' ')),priceClassExamples:[...card.matchAll(/<[^>]{0,220}(?:price|money|amount)[^>]{0,140}>/gi)].slice(0,16).map(m=>m[0].slice(0,240)),summaryText:card.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,700)}));
+            const response=await parsed.worker.fetch({method:'POST',url:'https://gamepilot.local/api/search',json:async()=>({query:'2000元以内冒险岛账号',filters:{}})}, {});
+            const result=await response.json();
+            console.log('LOCAL_SEARCH '+JSON.stringify({status:response.status,items:result.items?.length,unpriced:result.unpriced_leads?.length,excluded:result.excluded_leads?.length,first:result.items?.slice(0,3).map(x=>({id:x.id,price:x.price,title:x.title,evidence:x.price_evidence})),target:result.items?.find(x=>x.url.includes(target))?.price,source_platforms:result.coverage?.platforms?.map(x=>({platform:x.platform,with_price:x.with_price,discovered:x.discovered}))}));
             console.log('PARSE '+JSON.stringify({category_cards:leads.items.length,category_priced:leads.priced,target_card_bytes:card.length,price_p:p?.[0]||null,unique_links:[...new Set(links)].slice(0,6),helper:parsed.gmmsjCardEvidence(list,list.indexOf('detail_'+target),target),lead:selected?{price:selected.price,title:selected.title,server:selected.server}:null,detail:{game:detail.detail_game,price:detail.price,title:detail.page_title,status:detail.status}}));
           }catch(e){console.log('PARSE_ERROR '+String(e?.stack||e).slice(0,1000))}
           try{
