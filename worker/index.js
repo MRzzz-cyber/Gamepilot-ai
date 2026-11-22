@@ -21,10 +21,16 @@ function extractDetailPrice(html){
  return {price:null,price_evidence:'unknown',availability:null};
 }
 function visibleDetailPrice(html){
- const body=decodeEntities(String(html||'').replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' '));
- // Only explicit price labels, not arbitrary currency amounts in ads, coupons or recommendations.
- const matches=[...body.matchAll(/(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\s*[:：]?\s*[¥￥]?\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\s*元?/g)];
- for(const m of matches){const n=Number(m[1]);const context=body.slice(Math.max(0,m.index-55),m.index+85);if(n>=1&&n<=1000000&&!/(?:优惠券|满减|返现|推荐商品|相似商品|原价)/.test(context))return {price:n,price_evidence:'detail_visible_labeled'};}
+ // Strip scripts/styles correctly; the previous regex had escaped backslashes and matched no HTML.
+ const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const patterns=[
+  /(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\.\d{1,2})?)\s*元?/g,
+  /(?:^|\s)[¥￥]\s*([1-9]\d{0,5}(?:\.\d{1,2})?)(?=\s|$)/g
+ ];
+ for(const re of patterns)for(const m of body.matchAll(re)){
+  const n=Number(m[1]),context=body.slice(Math.max(0,m.index-70),m.index+90);
+  if(n>=1&&n<=1000000&&!/(?:优惠券|满减|返现|推荐商品|相似商品|原价|新人券)/.test(context))return {price:n,price_evidence:'detail_visible_labeled'};
+ }
  return {price:null,price_evidence:'unknown'};
 }
 async function verifyListing(raw){
