@@ -81,3 +81,20 @@ jobs:
             console.log('KING_DETAIL '+JSON.stringify({id,status:x.status,game:x.detail_game,price:x.price,price_evidence:x.price_evidence,title:x.page_title,attributes:x.detail_attributes,fetch_error:x.fetch_error,http_status:x.http_status}));
           }
           NODE
+
+
+      - name: Inspect pzds official listing card price and identity fields
+        run: |
+          node --input-type=module <<'NODE'
+          const res=await fetch('https://www.pzds.com/goodsList/7/6',{headers:{Accept:'text/html','User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(12000)});
+          const h=await res.text();
+          const cards=[...h.matchAll(/<a\b[^>]*href=["'](\/goodsDetails\/[A-Za-z0-9]+\/6[^"']*)["'][^>]*>/g)].slice(0,11);
+          console.log('LIST_COUNT '+cards.length);
+          for(const x of cards){
+            const end=h.indexOf('</a>',x.index);
+            const item=h.slice(x.index,end>0?end+4:x.index+6000);
+            const plain=item.replace(/<[^>]+>/g,' ').replace(/&[^;\s]+;/g,' ').replace(/\s+/g,' ').slice(0,650);
+            const prices=[...item.matchAll(/<(?:span|div|p)\b[^>]*class=["'][^"']*(?:price|money|currency)[^"']*["'][^>]*>[\s\S]{0,180}?(?:<\/(?:span|div|p)>)/gi)].slice(0,12).map(m=>m[0].replace(/\s+/g,' ').slice(0,220));
+            console.log('ITEM '+JSON.stringify({url:x[1],bytes:item.length,plain,priceTags:prices,title:x[0].match(/title=["']([^"']*)["']/)?.[1]?.slice(0,120),server:plain.match(/苹果QQ|苹果微信|安卓QQ|安卓微信/)?.[0],realname:plain.match(/可二次实名|不可二次实名/)?.[0]}));
+          }
+          NODE
