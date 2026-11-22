@@ -20,6 +20,13 @@ function extractDetailPrice(html){
  const meta=[...html.matchAll(/<meta\s+[^>]*>/gi)].map(x=>x[0]);for(const tag of meta){if(!/(?:product:price:amount|og:price:amount|itemprop=["']price)/i.test(tag))continue;const m=tag.match(/content=["']([0-9]+(?:\.[0-9]{1,2})?)["']/i);if(m&&Number(m[1])>0)return {price:Number(m[1]),price_evidence:'detail_meta',availability:null}}
  return {price:null,price_evidence:'unknown',availability:null};
 }
+function visibleDetailPrice(html){
+ const body=decodeEntities(String(html||'').replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' '));
+ // Only explicit price labels, not arbitrary currency amounts in ads, coupons or recommendations.
+ const matches=[...body.matchAll(/(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\\s*[:：]?\\s*[¥￥]?\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*元?/g)];
+ for(const m of matches){const n=Number(m[1]);const context=body.slice(Math.max(0,m.index-55),m.index+85);if(n>=1&&n<=1000000&&!/(?:优惠券|满减|返现|推荐商品|相似商品|原价)/.test(context))return {price:n,price_evidence:'detail_visible_labeled'};}
+ return {price:null,price_evidence:'unknown'};
+}
 async function verifyListing(raw){
  let u;try{u=new URL(raw)}catch{return {status:'invalid_url',message:'无效商品链接'}}
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port)return {status:'unsupported_source',message:'不支持此域名'};
@@ -32,16 +39,16 @@ async function verifyListing(raw){
  const html=(await r.text()).slice(0,500000);
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
  const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;
- const detail=extractDetailPrice(html);
+ const detail=extractDetailPrice(html);const visible=visibleDetailPrice(html);
  // Search only the page title and explicit structured availability for strong sold evidence.
  const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
  const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
- return {status:sold?'sold':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',price:gmmsj?.price??detail.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
+ return {status:sold?'sold':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
  }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates){
- const top=candidates.slice(0,24);
- const checks=await Promise.all(top.map(x=>verifyListing(x.url)));
+ const top=candidates.slice(0,36);
+ const checks=[];for(let i=0;i<top.length;i+=9){checks.push(...await Promise.all(top.slice(i,i+9).map(x=>verifyListing(x.url))));}
  return candidates.map((x,i)=>{
   if(i>=checks.length)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
   const v=checks[i];const price=v.price!=null?v.price:x.price;
