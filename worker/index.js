@@ -498,7 +498,7 @@ async function discover(query,filters,env,options={}){
   }
  }
  // Official 5173 account marketplace fallback: submit the game via the public site's search UI.
- if(typeof env?.BROWSER?.quickAction==='function'&&![...results.values()].some(x=>x.platform==='5173')){
+ if(!options.retry&&typeof env?.BROWSER?.quickAction==='function'&&![...results.values()].some(x=>x.platform==='5173')){
   let status='not_run',added=0,attempts=[],ms=0;
   const start=Date.now();
   try{
@@ -586,6 +586,8 @@ async function agentSearchListings(query,args,env){
   discovery={...discovery,candidates:[...unique.values()],trace:[...discovery.trace,...retry.trace]};
   stages.push({stage:'discover_fallback',count:retry.candidates.length,requests:retry.trace.filter(t=>t.tool.startsWith('discover_')).length});
  }
+ const native5173=discovery.trace.find(t=>t.tool==='browser_native_5173')||null;
+ if(native5173)stages.push({stage:'native_5173',count:native5173.result?.detail_pages||0,status:native5173.result?.status||'unknown'});
  const enriched=await enrichCandidates(discovery.candidates,env,discovery.trace);
  stages.push({stage:'verify_details',count:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length});
  const browserSummary=discovery.trace.findLast(t=>t.tool==='browser_render_summary')?.result||{configured:false,attempted:0,recovered_prices:0};
@@ -645,7 +647,7 @@ async function agentSearchListings(query,args,env){
   excluded_leads:excludedLeads,
   audit_counts:{discovered:enriched.length,qualified:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}
  };
- const searchDiagnostics={...detailDiagnostics,browser:browserSummary,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
+ const searchDiagnostics={...detailDiagnostics,browser:browserSummary,native_5173:native5173?.result||null,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
  return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,zero_result_reason:items.length?null:!env.BRAVE_SEARCH_API_KEY?'search_not_configured':!discovery.candidates.length?'no_product_leads':!enriched.some(x=>x.price!=null)?'no_price_evidence':!editionSafe.length?'edition_evidence_missing':'constraints_or_identity_not_verified'},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
