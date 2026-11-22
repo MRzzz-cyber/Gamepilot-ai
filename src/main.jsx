@@ -183,7 +183,7 @@ function App(){
   <div className="harnessExplorerSubtitle">Progressive Search · 实际执行与结果</div>
   <div className="harnessArchitectureRibbon"><span>工具调用可追踪</span><span>筛选结果可解释</span></div>
  </div>
-   <div className="executionHeader harnessRuntimeHeader"><div className="sideTitle"><Activity size={16}/> Agent 执行路径</div><span className={'executionState '+(busy||chatBusy?'running':harness?(items.length?'done':'warning'):'idle')}>{busy||chatBusy?'检索中':harness?(items.length?'有匹配':'未匹配'):'待搜索'}</span></div>
+   <div className="executionHeader harnessRuntimeHeader"><div className="sideTitle"><Activity size={16}/> 本次执行</div><span className={'executionState '+(busy||chatBusy?'running':harness?(items.length?'done':'warning'):'idle')}>{busy||chatBusy?'检索中':harness?(items.length?'有匹配':'未匹配'):'待搜索'}</span></div>
   {harness?<>
    <div className={'harnessRuntimeSummary '+(items.length?'matchFound':'noMatch')}><strong>{harnessResultDescription(harness,items)}</strong><span>{harness.version||'Progressive Search'} · {harness.attempts??0} 轮发现 · {leadAudit?.discovered??searchDiagnostics?.discovered??0} 条线索</span></div>
    <div className="executionFlow">
