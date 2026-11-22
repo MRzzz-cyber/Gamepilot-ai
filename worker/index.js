@@ -23,7 +23,7 @@ function extractDetailPrice(html){
 function visibleDetailPrice(html){
  const body=decodeEntities(String(html||'').replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' '));
  // Only explicit price labels, not arbitrary currency amounts in ads, coupons or recommendations.
- const matches=[...body.matchAll(/(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\\s*[:：]?\\s*[¥￥]?\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*元?/g)];
+ const matches=[...body.matchAll(/(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\s*[:：]?\s*[¥￥]?\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\s*元?/g)];
  for(const m of matches){const n=Number(m[1]);const context=body.slice(Math.max(0,m.index-55),m.index+85);if(n>=1&&n<=1000000&&!/(?:优惠券|满减|返现|推荐商品|相似商品|原价)/.test(context))return {price:n,price_evidence:'detail_visible_labeled'};}
  return {price:null,price_evidence:'unknown'};
 }
@@ -136,7 +136,7 @@ function isGenericPage(title,description,game){
  const t=String(title||'').trim(),d=String(description||'');
  const generic=/(?:交易平台|交易网|账号交易平台|游戏账号交易|游戏交易平台|账号买卖平台|首页|商品列表|账号交易网)/;
  // Platform SEO suffixes often contain 交易平台 even for real individual listings.
- const listingEvidence=/(?:账号编号|商品编号|货号|编号\\s*[A-Z0-9]{5,}|皮肤\\s*\\d+|英雄\\s*\\d+|等级\\s*\\d+|[¥￥]\\s*\\d+|售价\\s*[:：]?\\s*\\d+)/i.test(t+' '+d);
+ const listingEvidence=/(?:账号编号|商品编号|货号|编号\s*[A-Z0-9]{5,}|皮肤\s*\d+|英雄\s*\d+|等级\s*\d+|[¥￥]\s*\d+|售价\s*[:：]?\s*\d+)/i.test(t+' '+d);
  return !gameMatches(t+' '+d,game)||(!listingEvidence&&generic.test(t));
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
@@ -144,7 +144,9 @@ async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],trace:[{tool:'search',result:{error:'BRAVE_SEARCH_API_KEY 未配置'}}],reason:'missing_search_key',message:'搜索服务未配置'};
  const trace=[],results=new Map(),game=detectGame(query),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'detect_game',result:{error:'unsupported_game',supported:GAME_CATALOG.map(g=>g.name)}}],reason:'unsupported_game',message:'暂未识别游戏名称，请输入王者荣耀、冒险岛、原神等游戏名称'};
- const plans=searchPlans(game,filters);
+ // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
+ const allPlans=searchPlans(game,filters);
+ const plans=[];for(let i=0;i<4;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
   const t=Date.now();try{
    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
@@ -155,7 +157,7 @@ async function discover(query,filters,env){
     if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href))continue;
-    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(isGenericPage(title,description,game))continue;if(d.host==='gmmsj.com'&&!gameMatches(full,game))continue;
+    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname))continue;if(d.host==='gmmsj.com'&&!gameMatches(full,game))continue;
     const foundServer=game.server?(full.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const price=extractPrice(full);const skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
