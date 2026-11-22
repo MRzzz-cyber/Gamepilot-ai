@@ -463,7 +463,7 @@ async function gmmsjCategoryLeads(game,filters,renderedHtml=null){
    const titleFromLink=anchorTitle.length>=10&&!/^(?:查看详情|立即购买|点击查看|商品详情|账号商品详细信息)/.test(anchorTitle)?anchorTitle.slice(0,125):null;
    const productId=url.pathname.split('/').pop().replace(/\.shtml$/,'').replace(/^detail_/,'');
    const card=gmmsjCardEvidence(html,m.index,productId);
-   const listingTitle=titleFromLink||card.title;
+   const listingTitle=card.title||titleFromLink;
    const title=listingTitle?'冒险岛 '+listingTitle:'冒险岛商品 '+productId.slice(-10)+'（详情待核验）';
    const nearby=listingTitle?'商品卡片文字：'+listingTitle:'来自G买卖冒险岛分类页，账号属性等待详情验证';
    unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:nearby+' 【冒险岛国服分类页】',server:card.server||null,price:card.price,price_evidence:card.price!=null?'gmmsj_category_visible_price':'unknown',price_source_label:card.price!=null?'G买卖商品列表标价（非实时）':'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:card.price!=null?'官方分类页商品卡片可见标价，库存与详情价格仍需核验':'官方冒险岛国服分类页商品链接，详情信息尚未核验',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
@@ -536,7 +536,7 @@ async function discover(query,filters,env,options={}){
  // G买卖 renders prices on the listing cards. A usable HTML page may expose URLs
  // but omit card values; do one browser-rendered category fetch BEFORE 15 detail
  // checks, rather than spending separate browser sessions on blocked details.
- if(!options.retry&&game.name==='冒险岛'&&feed.items.length>0&&(feed.priced||0)===0){
+ if(!options.retry&&game.name==='冒险岛'&&feed.items.length>0&&(feed.priced||0)<Math.ceil(feed.items.length*0.65)){
   const started=Date.now();
   if(typeof env?.BROWSER?.quickAction!=='function'){
    trace.push({tool:'gmmsj_category_price_render',result:{status:'browser_binding_missing',priced:0},duration_ms:0});
@@ -551,7 +551,7 @@ async function discover(query,filters,env,options={}){
     for(const item of rendered.items){
      const previous=results.get(item.url);
      if(previous){
-      if(item.price!=null&&previous.price==null){results.set(item.url,{...previous,...item});priced++}
+      if(item.price!=null){results.set(item.url,{...previous,...item});priced++}
      }else{results.set(item.url,item);added++;if(item.price!=null)priced++}
     }
     trace.push({tool:'gmmsj_category_price_render',result:{status:rendered.diagnostic,priced,added,found:rendered.items.length},duration_ms:Date.now()-started});
