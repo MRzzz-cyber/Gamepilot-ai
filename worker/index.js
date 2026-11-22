@@ -691,6 +691,13 @@ async function agentSearchListings(query,args,env){
   pricingGate.over_budget&&pricingGate.correct_game_priced===pricingGate.over_budget?'over_budget':
   !pricingGate.correct_game_priced?'identity_or_availability_unverified':
   pricingGate.within_budget?'other_constraints_unmet':'constraints_or_identity_not_verified';
+ const skillFlow=[
+  {id:'requirements-parsing',status:'completed',input:'用户自然语言',output:{game:game?.name||null,budget:req?.budget??null,server:filters.server||'all'}},
+  {id:'marketplace-discovery',status:discovery.candidates.length?'completed':'empty',output:{leads:discovery.candidates.length,platforms:SEARCH_DOMAINS.map(d=>d.platform)}},
+  {id:'detail-verification',status:enriched.some(x=>x.detail_check!=='not_checked')?'completed':'not_executed',output:{checked:enriched.filter(x=>x.detail_check!=='not_checked').length,with_price:enriched.filter(x=>x.price!=null).length,browser_used:browserSummary.attempted||0}},
+  {id:'evidence-filtering',status:items.length?'completed':'no_match',output:{eligible:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}},
+  {id:'preference-ranking',status:items.length?'completed':'skipped_no_matches',output:{ranked:items.length,sort:'preference_score'}}
+ ];
  const detailDiagnostics={
   source_health:SEARCH_DOMAINS.map(d=>({platform:d.platform,domain:d.host,
    leads:discovery.candidates.filter(x=>x.platform===d.platform).length,
@@ -707,7 +714,7 @@ async function agentSearchListings(query,args,env){
   audit_counts:{discovered:enriched.length,qualified:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}
  };
  const searchDiagnostics={...detailDiagnostics,filter_gate:pricingGate,browser:browserSummary,native_5173:native5173?.result||null,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
- return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,result_status:items.length?'matched':'no_matches',zero_result_reason:zeroReason,filter_gate:pricingGate},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
+ return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,result_status:items.length?'matched':'no_matches',zero_result_reason:zeroReason,filter_gate:pricingGate,skill_flow:{schema:'gamepilot.skill-flow.v1',execution_mode:'deterministic-code',steps:skillFlow}},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
 async function watchPrice(raw,env){
