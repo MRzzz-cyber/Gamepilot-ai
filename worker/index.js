@@ -118,8 +118,8 @@ function extractPrice(s){
 function isGenericPage(title,description,game){
  const t=String(title||'').trim(),d=String(description||'');
  const generic=/(?:交易平台|交易网|账号交易平台|游戏账号交易|游戏交易平台|账号买卖平台|首页|商品列表|账号交易网)/;
- const product=/(?:商品编号|账号编号|商品ID|编号[:：]?\s*[A-Z0-9]{5,}|等级[:：]?\s*\d{2,}|职业[:：]|战力[:：]|皮肤(?:数量)?[:：]?\s*\d+)/i;
- return (generic.test(t)&&!product.test(t+' '+d))||(!gameMatches(t+' '+d,game));
+ const product=/(?:商品编号|账号编号|商品ID|账号编号[:：]?\s*[A-Z0-9]{5,}|商品编号[:：]?\s*[A-Z0-9]{5,})/i;
+ return generic.test(t)||!gameMatches(t+' '+d,game);
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
@@ -157,7 +157,7 @@ async function discover(query,filters,env){
  x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;x.match_level=(server&&x.server!==server)||(game.server&&filters.realname==='yes'&&x.realname!==true)||(x.price===null)?'incomplete':'candidate';
  }
  all.sort((a,b)=>{const tier=x=>x.price===null?2:x.price<=filters.max_price?0:x.price<=filters.max_price*1.1?1:3;return tier(a)-tier(b)||b.match_score-a.match_score});
- return {candidates:all.filter(x=>x.price==null||x.price<=filters.max_price*1.3).slice(0,80),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
+ return {candidates:all.filter(x=>x.price==null||x.price<=filters.max_price*1.3).slice(0,80),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'已发现商品线索；无明确报价的线索不会展示为比价卡片':'未找到可识别的商品详情页；不代表市场无货'};
 }
 
 
@@ -196,7 +196,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  const game=detectGame(query);const req=game?requirements(query,filters,game):null;const discovery=await discover(query,filters,env);
  const requested=String(body.model||'').slice(0,150);
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
- const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
+ const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
  const noteMap=new Map((ai.notes||[]).map(n=>[n.id,n]));
  const candidates=display.map(x=>({...x,agent_note:noteMap.get(x.id)||null,price_audit:{amount:x.price,currency:'CNY',source:x.price_evidence?.startsWith('detail_')?'商品详情页': '搜索引擎索引',is_realtime:false,verified_at:x.checked_at||null,confidence:x.price_evidence?.startsWith('detail_')?'medium':'low',warning:x.price_conflict?'索引价格与详情价格冲突':null},key_attributes:{game:x.game,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,profession:(x.title+' '+x.description).match(/(?:职业|职阶)\s*[:：为是]?\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1]||null,power:(x.title+' '+x.description).match(/(?:战力|战斗力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/)?.[1]||null}}));
  return json({items:[],candidates,coverage,requirements:req,rejected_count:evaluated.filter(x=>x.requirement_evaluation?.fit==='rejected').length,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
