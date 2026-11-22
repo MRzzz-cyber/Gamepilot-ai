@@ -145,7 +145,19 @@ function listingGameMatches(title,description,game){
  return false;
 }
 // Trust a source's explicitly labeled game category, never an arbitrary SEO recommendation snippet.
+// Generic identity evidence for any game, including titles absent from GAME_CATALOG.
+// Search snippets are not authoritative: only a title or explicitly labeled category can confirm.
+function genericGameEvidence(title,description,game){
+ const name=String(game?.name||'').trim();
+ if(!name)return false;
+ const t=String(title||'').split(/(?:[-|－]\\s*(?:盼之代售|盼之账号|G买卖|5173|游戏账号交易平台))/i)[0];
+ if(t.toLocaleLowerCase().includes(name.toLocaleLowerCase()))return true;
+ const d=String(description||'').slice(0,1600);
+ const label=d.match(/(?:所属游戏|游戏名称|游戏分类|游戏区服)\\s*[:：]?\\s*([^\\s,，|｜;；<>]{2,55})/i);
+ return !!label&&label[1].toLocaleLowerCase().includes(name.toLocaleLowerCase());
+}
 function labeledListingGame(title,description,game){
+ if(genericGameEvidence(title,description,game))return true;
  if(listingGameMatches(title,'',game))return true;
  const d=String(description||'').slice(0,1500);
  const m=d.match(/(?:游戏区服|所属游戏|游戏名称|游戏分类)\s*[:：]?\s*(王者荣耀|冒险岛M?|枫之谷|原神|和平精英|地下城与勇士|英雄联盟|永劫无间|逆水寒)/i);
@@ -288,7 +300,7 @@ async function discover(query,filters,env){
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href)){duplicateRejected++;continue}
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}if(isGenericPage(title,description,game)&&!/(?:goodsDetails\/|detail_[a-z0-9]+\.shtml)/i.test(link.pathname)){genericRejected++;continue}if(d.host==='gmmsj.com'&&!gameMatches(full,game)&&!game.universal)continue;
-    if(game.name==='冒险岛'&&!mapleEditionMatches(title,filters.version||null)){genericRejected++;continue}const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
+    if(game.name==='冒险岛'&&filters.version&&!mapleEditionMatches(title+' '+description,filters.version)){genericRejected++;continue}const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const rawPrice=extractPrice(title);const price=rawPrice!=null&&rawPrice<10?null:rawPrice;if(price!=null)priced++;const skins=Number(title.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(title.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
