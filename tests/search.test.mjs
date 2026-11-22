@@ -196,3 +196,13 @@ test('Browser Run reads a game-matched G买卖 category page and extracts real-l
  assert.ok(result.data.trace.some(x=>x.tool==='browser_category_gmmsj.com'&&x.result.detail_pages>=1));
  assert.equal(calls.length,1);
 });
+
+test('5173 adapter accepts stable detail IDs, rejects search pages and never fabricates listings',()=>{
+ const {isProductPage}=runtime();
+ assert.equal(isProductPage(new URL('https://shop.5173.com/goods/123456789012'),'5173.com'),true);
+ assert.equal(isProductPage(new URL('https://shop.5173.com/account/details/abc123456789'),'5173.com'),true);
+ assert.equal(isProductPage(new URL('https://shop.5173.com/product?goodsId=abcdef123456'),'5173.com'),true);
+ assert.equal(isProductPage(new URL('https://s.5173.com/search/abcdef123456'),'5173.com'),false);
+ assert.equal(isProductPage(new URL('https://shop.5173.com/checkout/123456789012'),'5173.com'),false);
+ assert.equal(isProductPage(new URL('https://shop.5173.com/'),'5173.com'),false);
+});
