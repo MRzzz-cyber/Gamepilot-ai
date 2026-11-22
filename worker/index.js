@@ -171,7 +171,7 @@ function requirements(query,filters,game){
 function evaluateCandidate(x,req){
  const failures=[],unknown=[],positive=[],full=x.title+' '+x.description;
  for(const h of req.hard){
-  if(h.field==='game'&&!labeledListingGame(x.title,x.description,GAME_CATALOG.find(g=>g.name===req.game)||{name:req.game,aliases:[req.game]}))failures.push('游戏不匹配');
+  if(h.field==='game'&&x.detail_game&&x.detail_game!==req.game)failures.push('详情游戏不匹配');else if(h.field==='game'&&!(x.game_confirmed||x.detail_game===req.game||labeledListingGame(x.title,x.description,GAME_CATALOG.find(g=>g.name===req.game)||{name:req.game,aliases:[req.game]})))failures.push('游戏不匹配');
   if(h.field==='price'&&x.price!=null&&x.price>h.max)failures.push('超过预算');
   if(h.field==='price'&&x.price==null)unknown.push('价格缺失');
   if(h.field==='server'&&x.server&&x.server!==h.value)failures.push('区服不匹配');
@@ -246,7 +246,7 @@ async function gmmsjCategoryLeads(game,filters){
   for(const m of fallback)if(!links.some(x=>x[1]===m[0]))links.push([m[0],m[0],m.index]);
   const unique=new Map();
   for(const m of links){
-   let url;try{const href=decodeEntities(m[1].replace(/&amp;/g,'&'));url=new URL(href.startsWith('detail_')?'/dy/5_zh/'+href:href,source)}catch{continue}
+   let url;try{const href=decodeEntities((m[1]||m[0]).replace(/&amp;/g,'&'));url=new URL(href.startsWith('detail_')?'/dy/5_zh/'+href:href,source)}catch{continue}
    if(url.hostname!=='www.gmmsj.com'||!isProductPage(url,'gmmsj.com')||unique.has(url.pathname))continue;
    const nearby=cleanText(decodeEntities(html.slice(Math.max(0,m.index-650),m.index+1200).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ')));
    const titles=[...nearby.matchAll(/(?:账号\s*)?\[([^\]]{2,80})\]([^¥￥]{0,110})/g)];
