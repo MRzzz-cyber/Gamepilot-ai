@@ -117,21 +117,31 @@ const GAME_CATALOG=[
 function detectGame(q){const text=String(q||'').toLowerCase();return GAME_CATALOG.find(g=>g.aliases.some(a=>text.includes(a.toLowerCase())))||null}
 // Universal fallback: extract a game title from an explicit purchase request.
 // No fabricated catalog entries; ambiguous messages still require clarification.
+// One canonical resolver for search and chat. The latest explicit game wins over old context.
 function resolveGame(query,filters={}){
- const known=detectGame(query);
+ const input=String(query||'').trim();
+ const quoted=input.match(/[《「]([^》」]{2,36})[》」]/u);
+ const text=input.replace(/(?:游戏账号|成品号|游戏号|账号|帐号|账户|买号)[\s\S]*$/u,'');
+ let candidate=(quoted?.[1]||text)
+  .replace(/(?:预算|不超过|低于|最多|上限|价格)?\s*[¥￥]?\s*\d{2,7}\s*(?:元|块)?\s*(?:以内|以下|左右|上下)?\s*(?:的)?/g,' ')
+  .replace(/^(?:(?:请|麻烦|可以|能不能|帮我|给我|我想|我需要|我要|想要|需要|推荐|搜索|找|买|购买|看看|求购|一下|一个|一款|一些|个|的)\s*)+/u,'')
+  .replace(/^(?:的\s*)+/u,'').replace(/(?:游戏|的)\s*$/u,'').trim();
+ // "从原神换成三角洲账号" must resolve to 三角洲, not the old game.
+ candidate=candidate.split(/(?:换成|切换到|改找|改搜|改成)/u).at(-1).trim();
+ const hasProductIntent=/(?:游戏账号|成品号|游戏号|账号|帐号|账户|买号)/u.test(input)||!!quoted;
+ if(hasProductIntent&&candidate.length>=2&&candidate.length<=35&&!/(?:\d{2,7}\s*(?:元|块)|^(?:游戏|一个|高战力|高等级|账号)$)/u.test(candidate)){
+  const known=GAME_CATALOG.find(g=>g.aliases.some(a=>{
+   const v=candidate.toLowerCase(),p=a.toLowerCase();
+   return v===p||(v.startsWith(p)&&/^(?:苹果|安卓|qq|微信|国服|台服|国际服|手游|端游|pc|高战力|高等级|皮肤多|装备好|五星角色)*$/i.test(v.slice(p.length)));
+  }));
+  return known||{name:candidate,aliases:[candidate],server:false,universal:true};
+ }
+ // Only if a message lacks a new game may prior state be used.
+ const known=detectGame(input);
  if(known)return known;
- const text=String(query||'').trim();
- const quoted=text.match(/[《「]([^》」]{2,36})[》」]/u);
- let clean=text.replace(/(?:预算|价格|不超过|低于|最多|上限)?\s*[¥￥]?\s*\d{2,7}\s*(?:元|块)?\s*(?:以内|以下|左右|上下)?\s*(?:的)?/g,' ')
-  .replace(/(?:账号|帐号|游戏号|成品号|游戏账号|账户|号)\s*(?:推荐|出售|交易|购买)?\s*$/,'')
-  .trim();
- // Strip repeated conversational prefixes after removing the budget.
- clean=clean.replace(/^(?:(?:请|麻烦|可以|能不能|帮我|给我|我想|我需要|我要|想要|需要|推荐|搜索|找|买|购买|看看|求购|一下|一个|一些|个|便宜的|合适的|的)\s*)+/,'').trim();
- clean=clean.replace(/^(?:的\s*)+/,'').replace(/(?:游戏|的)\s*$/,'').trim();
- if(quoted)clean=quoted[1].trim();
- if(!/(?:账号|帐号|游戏号|成品号|账户|买号)/.test(text)&&!quoted){const fallback=String(filters.game||'').trim();return fallback?{name:fallback,aliases:[fallback],server:false,universal:true}:null;}
- if(clean.length<2||clean.length>35||/\d{2,7}\s*(?:元|块)|^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(clean)){const fallback=String(filters.game||'').trim();return fallback?{name:fallback,aliases:[fallback],server:false,universal:true}:null;}
- return {name:clean,aliases:[clean],server:false,universal:true};
+ const fallback=String(filters.game||'').trim();
+ if(!fallback)return null;
+ return GAME_CATALOG.find(g=>g.name===fallback||g.aliases.some(a=>a.toLowerCase()===fallback.toLowerCase()))||{name:fallback,aliases:[fallback],server:false,universal:true};
 }
 function gameMatches(text,game){const t=String(text||'').toLowerCase();return game.aliases.some(a=>t.includes(a.toLowerCase()))}
 // Title is the listing identity; descriptions may include unrelated SEO recommendations.
@@ -375,37 +385,28 @@ function search(filters={}){const f={server:'all',max_price:1000,realname:'all',
 function execute(name,args){if(name==='search_listings')return {items:search(args),note:'未接入授权实时库存，禁止推荐历史或模拟商品'};if(name==='compare_prices'){const ids=Array.isArray(args.ids)?args.ids:[];return ids.map(id=>{const x=inventory.find(v=>v.id===id);return x?{id,platform:x.platform,listed_price_cny:x.price,required_fees:'unknown',final_price:'unknown',source:x.source}: {id,error:'商品不存在'}})}if(name==='check_risks'){const ids=Array.isArray(args.ids)?args.ids:[];return ids.map(id=>{const x=inventory.find(v=>v.id===id);return x?{id,realname_changeable:x.realname,fees:'unknown',status:'not_live_verified',warning:'账号归属、交易保障和找回风险需在源站核验'}:{id,error:'商品不存在'}})}return {error:'未知工具'}}
 const tools=[{type:'function',function:{name:'search_listings',description:'自动通过配置的搜索服务发现盼之、5173、G买卖的公开商品索引；候选未核验在售，不能作为可购买推荐',parameters:{type:'object',properties:{server:{type:'string',enum:['all','安卓QQ','苹果QQ','安卓微信']},max_price:{type:'number'},realname:{type:'string',enum:['all','yes','no']},sort:{type:'string',enum:['fit','low','skins']},source:{type:'string',enum:['all','public','demo']}},required:[]}}},{type:'function',function:{name:'compare_prices',description:'比较挂牌参考价并明确未知服务费',parameters:{type:'object',properties:{ids:{type:'array',items:{type:'string'}}},required:['ids']}}},{type:'function',function:{name:'check_risks',description:'检查实名与未核验交易风险',parameters:{type:'object',properties:{ids:{type:'array',items:{type:'string'}}},required:['ids']}}}];
 // Progressive requirement collection before searching ambiguous game editions.
-function clarifyGameEdition(message,context={}){
- const text=String(message||'');
+// Canonical intent parser; no per-game prompt filter in demo mode.
+function interpretIntent(message,context={}){
+ const text=String(message||'').trim();
  const game=resolveGame(text,context);
- if(!game||game.name!=='冒险岛')return null;
- const version=/(?:冒险岛M|MapleStory\s*M|手游版|手机版)/i.test(text)?'手游版':/(?:国际服|Global|GMS)/i.test(text)?'国际服':/(?:台服|枫之谷|TMS)/i.test(text)?'台服／枫之谷':/(?:国服|盛趣)/i.test(text)?'国服':context.version||null;
- const budgetMatch=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
- const bareBudget=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);const budget=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):bareBudget?Number(bareBudget[1]):/不限预算|先看看价格|不知道预算/.test(text)?0:context.max_price??null;
- const profession=text.match(/(?:黑骑士|剑刃舞者|弓箭手|夜使者|主教|双弩精灵|法师|战士|飞侠)/)?.[0]||context.profession||null;
- const preferences=[...new Set([...(Array.isArray(context.preferences)?context.preferences:[]),...(/等级越高|高等级/.test(text)?['等级越高越好']:[]),...(/装备越好|毕业装备|装备好/.test(text)?['装备越好越好']:[])])];const requirements={game:'冒险岛',version,max_price:budget,profession,preferences};
- // Demo mode: edition is optional metadata, not a mandatory clarification.
- if(budget===null)return {needs_clarification:true,requirements,question:'已确认'+version+'。预算大约多少？直接回复数字即可；不确定也可以回复「不限预算」，我会先搜索真实商品价格。',options:['1000','3000','5000','不限预算']};
- return {needs_clarification:false,requirements};
-}
-// Shared deterministic requirement extraction for games without edition clarification.
-function clarifyGeneralGame(message,context={}){
- const text=String(message||'');const game=resolveGame(text,context);
- if(!game||game.name==='冒险岛')return null;
- const explicit=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
- const bare=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);
- const max_price=explicit?Number(explicit[1]||explicit[2]):bare?Number(bare[1]):/不限预算|先看看价格/.test(text)?100000:context.max_price??null;
- const server=text.match(/(?:安卓QQ|苹果QQ|安卓微信|苹果微信)/)?.[0]||(/不限区服|全部区服/.test(text)?'all':null)||context.server||null;
- const realname=/(?:不可二次实名|不支持二次实名)/.test(text)?'no':/(?:支持二次实名|可二次实名|可二改)/.test(text)?'yes':context.realname||'all';
- const preferences=[...new Set([...(Array.isArray(context.preferences)?context.preferences:[]),...(/皮肤越多|皮肤多/.test(text)?['皮肤越多越好']:[]),...(/英雄越多|英雄多/.test(text)?['英雄越多越好']:[])])];
- const version=text.match(/(?:国际服|台服|国服|日服|韩服|美服|欧服|东南亚服|怀旧服|经典服|手游版|PC版)/)?.[0]||context.version||null;
- const profession=text.match(/(?:职业|角色|职阶)\s*[:：为是]?\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||context.profession||null;
+ if(!game)return {needs_clarification:true,requirements:{...context},question:'想找哪个游戏的账号？例如「1000元以内的三角洲账号」。',options:[]};
+ const switching=!!context.game&&context.game!==game.name;
+ const prior=switching?{}:context;
+ const budgetMatch=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/u);
+ const bare=text.match(/^[¥￥]?\s*(\d{2,7})\s*$/);
+ const max_price=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):bare?Number(bare[1]):/不限预算|先看看价格|不知道预算/u.test(text)?100000:prior.max_price??null;
+ const server=text.match(/(?:安卓QQ|苹果QQ|安卓微信|苹果微信)/u)?.[0]||(/不限区服|全部区服/u.test(text)?'all':null)||prior.server||'all';
+ const realname=/(?:不可二次实名|不支持二次实名|不可二改)/u.test(text)?'no':/(?:支持二次实名|可二次实名|可二改)/u.test(text)?'yes':prior.realname||'all';
+ const version=text.match(/(?:国际服|台服|国服|日服|韩服|美服|欧服|东南亚服|怀旧服|经典服|手游版|PC版|GMS|TMS)/iu)?.[0]||prior.version||null;
+ const profession=text.match(/(?:职业|职阶)\s*(?:为|是|[:：])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||prior.profession||null;
+ const preferences=[...new Set([...(Array.isArray(prior.preferences)?prior.preferences:[]),...(/皮肤越多|皮肤多/u.test(text)?['皮肤越多越好']:[]),...(/英雄越多|英雄多/u.test(text)?['英雄越多越好']:[]),...(/五星角色越多|五星角色多/u.test(text)?['五星角色越多越好']:[]),...(/等级越高|高等级/u.test(text)?['等级越高越好']:[]),...(/装备越好|装备好|毕业装备/u.test(text)?['装备越好越好']:[]),...(/高战力|战力越高/u.test(text)?['战力越高越好']:[])])];
  const requirements={game:game.name,version,server,max_price,realname,profession,preferences};
- // Start discovery immediately for complete requests; otherwise ask only the highest-impact missing dimension.
- if(game.server&&!server)return {needs_clarification:true,requirements,question:'你想找哪个区服？可以直接选一个，或回复「不限区服」。',options:['苹果QQ','安卓QQ','苹果微信','安卓微信','不限区服']};
- if(max_price===null)return {needs_clarification:true,requirements,question:'预算大概多少？回复数字即可，也可以回复「不限预算」。',options:['500','1000','2000','不限预算']};
+ if(max_price===null)return {needs_clarification:true,requirements,question:'预算大概多少？回复数字即可，也可以说「不限预算」。',options:['500','1000','2000','不限预算']};
  return {needs_clarification:false,requirements};
 }
+// Compatibility wrappers only; both routes use the canonical parser.
+function clarifyGameEdition(message,context={}){const game=resolveGame(message,context);return game?.name==='冒险岛'?interpretIntent(message,context):null}
+function clarifyGeneralGame(message,context={}){const game=resolveGame(message,context);return game?.name!=='冒险岛'?interpretIntent(message,context):null}
 // Shared evidence-grounded listing pipeline for chat tool calls.
 async function agentSearchListings(query,args,env){
  const parsed=parse(query),game=resolveGame(query,args);
@@ -468,11 +469,11 @@ if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await 
  // Reconstruct requirements from prior chat turns when the UI sends history instead of a separate context object.
  const history=Array.isArray(body.history)?body.history.slice(-16):Array.isArray(body.messages)?body.messages.slice(-16):[];
  let prior={...(body.context||{}),...(body.requirements||{})};
- for(const turn of history){const content=typeof turn==='string'?turn:String(turn?.content||turn?.message||'');if(!content||turn?.role==='assistant')continue;const update=clarifyGameEdition(content,prior)||clarifyGeneralGame(content,prior);if(update?.requirements)prior={...prior,...update.requirements}}
+ for(const turn of history){const content=typeof turn==='string'?turn:String(turn?.content||turn?.message||'');if(!content||turn?.role==='assistant')continue;const update=interpretIntent(content,prior);if(update?.requirements)prior={...prior,...update.requirements}}
  // New explicit game requests start a fresh search context; only follow-ups inherit prior game.
  const explicitGame=resolveGame(prompt,{});
  if(explicitGame&&prior.game&&explicitGame.name!==prior.game)prior={game:explicitGame.name};
- const clarification=clarifyGameEdition(prompt,prior)||clarifyGeneralGame(prompt,prior);
+ const clarification=interpretIntent(prompt,prior);
  if(clarification?.needs_clarification)return json({answer:clarification.question,clarification,requirements:clarification.requirements,items:[],trace:[],status:'needs_clarification',suggested_replies:clarification.options||[]});
  // Deterministic Progressive Search Harness: retrieval must not depend on model tool-call decisions.
  if(clarification?.requirements?.game&&body.mode!=='legacy_agent'){
