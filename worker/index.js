@@ -169,10 +169,10 @@ function listingGameMatches(title,description,game){
 function genericGameEvidence(title,description,game){
  const name=String(game?.name||'').trim();
  if(!name)return false;
- const t=String(title||'').split(/(?:[-|－]\\s*(?:盼之代售|盼之账号|G买卖|5173|游戏账号交易平台))/i)[0];
+ const t=String(title||'').split(/(?:[-|－]\s*(?:盼之代售|盼之账号|G买卖|5173|游戏账号交易平台))/i)[0];
  if(t.toLocaleLowerCase().includes(name.toLocaleLowerCase()))return true;
  const d=String(description||'').slice(0,1600);
- const label=d.match(/(?:所属游戏|游戏名称|游戏分类|游戏区服)\\s*[:：]?\\s*([^\\s,，|｜;；<>]{2,55})/i);
+ const label=d.match(/(?:所属游戏|游戏名称|游戏分类|游戏区服)\s*[:：]?\s*([^\s,，|｜;；<>]{2,55})/i);
  return !!label&&label[1].toLocaleLowerCase().includes(name.toLocaleLowerCase());
 }
 function labeledListingGame(title,description,game){
