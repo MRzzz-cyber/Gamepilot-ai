@@ -17,7 +17,7 @@ async function verifyListing(raw){
 }
 
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号'}];
-function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\\s+/g,' ').slice(0,700)}
+function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],reason:'missing_search_key',message:'尚未配置 BRAVE_SEARCH_API_KEY；无法自动发现真实候选'};
  const candidates=[],trace=[];const terms=['王者荣耀',filters.server==='all'?'账号':filters.server,filters.realname==='yes'?'二次实名':'',String(query||'').slice(0,60)].filter(Boolean).join(' ');
@@ -38,7 +38,7 @@ async function discover(query,filters,env){
     const combined=title+' '+snippet;
     const foundServer=combined.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null;
     if(filters.server!=='all'&&foundServer&&foundServer!==filters.server)continue;
-    const priceMatch=combined.match(/[¥￥]\\s*([0-9]{2,6})/);
+    const priceMatch=combined.match(/[¥￥]\s*([0-9]{2,6})/);
     const price=priceMatch?Number(priceMatch[1]):null;
     if(price!=null&&Number(filters.max_price)>0&&price>Number(filters.max_price))continue;
     candidates.push({id:d.host+':'+id,platform:d.platform,url:link.href,title,description:snippet,server:foundServer,price,source:'搜索索引 · 未核验',status:'unverified',discovered_at:new Date().toISOString(),verification:'搜索引擎缓存，不代表在售',kind:'discovered',heroes:null,skins:null,rare:'未核验',realname:null,time:'发现时间：'+new Date().toLocaleDateString('zh-CN')});count++;
