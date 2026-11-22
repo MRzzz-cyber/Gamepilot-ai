@@ -441,7 +441,7 @@ async function agentSearchListings(query,args,env){
   game:game?.name||null,platform:x.platform,title:x.title,url:x.url,
   price:x.price??null,category,detail_status:x.detail_check||'not_checked',
   http_status:x.detail_http_status||null,fetch_error:x.detail_fetch_error||null,
-  reason:x.verification||'商品详情未核验',
+  reason:x.price==null?(x.detail_http_status?'源站详情请求失败：HTTP '+x.detail_http_status:x.detail_fetch_error?'源站详情抓取失败：'+x.detail_fetch_error:x.detail_check==='not_checked'?'尚未读取详情页':x.status==='sold'?'商品已售出':x.status==='stale'?'商品信息已过期':x.status==='wrong_game'||x.status==='game_unconfirmed'?'游戏身份未核实':'详情页未识别到可靠价格字段'):(x.verification||'其他条件未通过'),
   evidence:x.price_evidence||'unknown',
   status:x.status||'unverified'
  });
