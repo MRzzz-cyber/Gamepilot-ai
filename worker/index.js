@@ -33,7 +33,7 @@ async function verifyListing(raw){
  }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates){
- const top=candidates.slice(0,12);
+ const top=candidates.slice(0,16);
  const checks=await Promise.all(top.map(x=>verifyListing(x.url)));
  return candidates.map((x,i)=>{
   if(i>=checks.length)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
@@ -54,7 +54,7 @@ function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^;
 async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],trace:[{tool:'search',result:{error:'BRAVE_SEARCH_API_KEY 未配置'}}],reason:'missing_search_key',message:'搜索服务未配置'};
  const trace=[],results=new Map(),server=filters.server==='all'?'':filters.server;
- const plans=SEARCH_DOMAINS.flatMap(d=>{const base='site:'+d.host+' 王者荣耀';const queries=[base+' '+(server||'账号')+' 出售',base+' 账号 价格',base+' '+(server||'账号')+' '+Math.round((filters.max_price||1000)*0.9),base+' 游戏账号 皮肤'];return queries.map((q,i)=>({d,q:q.trim(),offset:i===3?1:0}))});
+ const plans=SEARCH_DOMAINS.flatMap(d=>{const base='site:'+d.host;const queries=[base+' 王者荣耀 账号',base+' 王者荣耀 '+(server||'出售'),base+' 王者荣耀 皮肤 账号',base+' 王者荣耀 账号 价格'];return queries.map((q,i)=>({d,q:q.trim(),offset:0}))});
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
   const t=Date.now();try{
    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('search_lang','zh-hans');u.searchParams.set('country','CN');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
@@ -79,13 +79,13 @@ async function discover(query,filters,env){
  const all=[...results.values()];
  // Do not silently discard unknown attributes. Instead label uncertainty and rank lower.
  for(const x of all){let score=40,reasons=[];if(server){if(x.server===server){score+=25;reasons.push('区服匹配')}else if(!x.server){score-=12;reasons.push('区服未知')}else score-=100}
- if(x.price!=null){if(x.price<=filters.max_price){score+=20;reasons.push('索引价在预算内')}else if(x.price<=filters.max_price*1.1){score+=6;reasons.push('索引价略超预算（10%内）')}else{score-=35;reasons.push('索引价超出弹性预算')}}else{score-=15;reasons.push('价格未知')}
+ if(x.price!=null){if(x.price<=filters.max_price){score+=20;reasons.push('索引价在预算内')}else if(x.price<=filters.max_price*1.1){score+=6;reasons.push('索引价略超预算（10%内）')}else if(x.price<=filters.max_price*1.3){score-=12;reasons.push('索引价超预算10%至30%')}else{score-=35;reasons.push('索引价超出弹性预算')}}else{score-=15;reasons.push('价格未知')}
  if(filters.realname==='yes'){if(x.realname===true){score+=15;reasons.push('索引注明可二次实名')}else if(x.realname===false){score-=40;reasons.push('不满足实名条件')}else{score-=8;reasons.push('实名未知')}}
  if(x.skins!=null){score+=Math.min(12,Math.floor(x.skins/30));reasons.push('皮肤数量可提取')}
  x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;x.match_level=(server&&x.server!==server)||(filters.realname==='yes'&&x.realname!==true)||(x.price===null)?'incomplete':'candidate';
  }
  all.sort((a,b)=>{const tier=x=>x.price===null?2:x.price<=filters.max_price?0:x.price<=filters.max_price*1.1?1:3;return tier(a)-tier(b)||b.match_score-a.match_score});
- return {candidates:all.filter(x=>x.price===null||x.price<=filters.max_price*1.1).slice(0,48),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
+ return {candidates:all.filter(x=>x.price===null||x.price<=filters.max_price*1.3).slice(0,48),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
 }
 
 
