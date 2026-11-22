@@ -34,7 +34,6 @@ const harnessResultDescription=(harness,items)=>{
  };
  return why[harness.zero_result_reason]||'本次未匹配到商品';
 };
-const INTERVIEW_SCRIPT='GamePilot 使用 Progressive Search Harness 来管理搜索流程，而不是让大模型自由检索和判断商品真实性。首先将用户输入解析成游戏、预算与偏好；Harness 随后调度交易平台发现工具，普通 HTTP 无法读取动态详情时再有条件地调用 Cloudflare Browser Run。系统保留每条商品的来源、价格证据和验证状态，由确定性代码执行预算及游戏身份的硬性筛选，并依据偏好排序。即使没有匹配商品，运行记录也会展示失败发生在哪一步。OpenRouter 用于可选的结果分析，不代替商品证据核验。';
 const GAME_NAMES=['王者荣耀','冒险岛','原神','和平精英','地下城与勇士','英雄联盟','永劫无间','逆水寒'];
 const GAME_ALIASES=[['王者荣耀',['王者荣耀','王者']],['冒险岛',['冒险岛','MapleStory','枫之谷']],['原神',['原神','Genshin']],['和平精英',['和平精英','吃鸡']],['地下城与勇士',['地下城与勇士','DNF','地下城']],['英雄联盟',['英雄联盟','LOL']],['永劫无间',['永劫无间']],['逆水寒',['逆水寒']]];
 // UI hint only. Backend /api/chat and /api/search are authoritative for game identity.
@@ -60,14 +59,12 @@ const attrValue=(x)=>x.game==='王者荣耀'?`${attr(x,'skins')??'—'} / ${attr
 function App(){
  const searchEpoch=useRef(0),searchAbort=useRef(null),analysisEpoch=useRef(0),analysisAbort=useRef(null);
  const [showAllPending,setShowAllPending]=useState(false),[showAllExcluded,setShowAllExcluded]=useState(false);
- const [sidebarTab,setSidebarTab]=useState('architecture'),[interviewCopied,setInterviewCopied]=useState(false);
  const [health,setHealth]=useState(null),[analysisBusy,setAnalysisBusy]=useState(false),[unpricedLeads,setUnpricedLeads]=useState([]),[excludedLeads,setExcludedLeads]=useState([]),[leadAudit,setLeadAudit]=useState(null),[harness,setHarness]=useState(null),[searchDiagnostics,setSearchDiagnostics]=useState(null),[chatInput,setChatInput]=useState(''),[chatHistory,setChatHistory]=useState([]),[requirementsState,setRequirementsState]=useState({}),[chatBusy,setChatBusy]=useState(false),[chatError,setChatError]=useState(''),[suggestedReplies,setSuggestedReplies]=useState([]),[query,setQuery]=useState(''),[game,setGame]=useState('王者荣耀'),[page,setPage]=useState('home'),[server,setServer]=useState('all'),[budget,setBudget]=useState(1000),[realname,setRealname]=useState('all'),[models,setModels]=useState([]),[model,setModel]=useState('openai/gpt-4o-mini'),[modelsReady,setModelsReady]=useState(false),[items,setItems]=useState([]),[trace,setTrace]=useState([]),[status,setStatus]=useState(''),[summary,setSummary]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[chosen,setChosen]=useState([]),[analysis,setAnalysis]=useState(''),[usage,setUsage]=useState(null),[usedModel,setUsedModel]=useState(''),[agent,setAgent]=useState(null),[coverage,setCoverage]=useState(null);
  useEffect(()=>{fetch('/api/health',{cache:'no-store'}).then(r=>r.json()).then(setHealth).catch(()=>setHealth({ok:false,search_configured:false}))},[]);
  useEffect(()=>{fetch('/api/models').then(r=>r.json()).then(d=>{setModels(d.models||[]);setModel(d.default_model||d.models?.[0]?.id||'openai/gpt-4o-mini');setModelsReady(true)}).catch(()=>setModelsReady(true))},[]);
  const priced=useMemo(()=>items.filter(x=>x.price!=null),[items]);
  const byPlatform=useMemo(()=>({pzds:coverage?.platforms?.find(x=>x.platform==='盼之账号')?.discovered??items.filter(x=>x.platform==='盼之账号').length,market5173:coverage?.platforms?.find(x=>x.platform==='5173')?.discovered??items.filter(x=>x.platform==='5173').length,gmmsj:coverage?.platforms?.find(x=>x.platform==='G买卖')?.discovered??items.filter(x=>x.platform==='G买卖').length}),[items,coverage]);
  const selected=items.filter(x=>chosen.includes(x.id));
- async function copyInterviewScript(){try{await navigator.clipboard.writeText(INTERVIEW_SCRIPT);setInterviewCopied(true)}catch{setInterviewCopied(false)}}
  function beginSearch(){
   searchAbort.current?.abort();analysisAbort.current?.abort();analysisEpoch.current+=1;
   setAnalysisBusy(false);
@@ -181,16 +178,26 @@ function App(){
  <details className="diagnostics"><summary><Activity size={16}/> 开发者诊断（默认折叠） <ChevronDown size={15}/></summary><div className="diagnosticInner">{trace.map((t,i)=><div className="diagnosticRow" key={i}><b>{t.tool}</b><span>{t.duration_ms??0} ms</span><pre>{JSON.stringify(t.result||{},null,2)}</pre></div>)}{!trace.length&&<p>尚无执行记录</p>}</div></details></section>
  <aside className="insights executionAside harnessExplorer">
  <div className="harnessExplorerTop">
-  <span className="harnessExplorerKicker">GAMEPILOT / AGENT SYSTEM</span>
-  <div className="harnessExplorerTitle"><Layers3 size={19}/><strong>Progressive Search</strong></div>
-  <div className="harnessExplorerSubtitle">Harness 架构 · 从需求到可信商品</div><div className="harnessExplorerBuild">INTERVIEW EDITION · UI 2026.11.23</div>
-  <div className="harnessArchitectureRibbon"><span>可控执行</span><span>来源可追溯</span><span>错误可解释</span></div>
+  <span className="harnessExplorerKicker">GAMEPILOT / SEARCH HARNESS</span>
+  <div className="harnessExplorerTitle"><Activity size={19}/><strong>Agent 执行路径</strong></div>
+  <div className="harnessExplorerSubtitle">Progressive Search · 实际执行与结果</div>
+  <div className="harnessArchitectureRibbon"><span>工具调用可追踪</span><span>筛选结果可解释</span></div>
  </div>
- <div className="harnessViewTabs" role="tablist" aria-label="Harness 查看模式">
-  <button type="button" role="tab" aria-selected={sidebarTab==='architecture'} className={sidebarTab==='architecture'?'active':''} onClick={()=>setSidebarTab('architecture')}>架构设计</button>
-  <button type="button" role="tab" aria-selected={sidebarTab==='runtime'} className={sidebarTab==='runtime'?'active':''} onClick={()=>setSidebarTab('runtime')}>运行记录{harness&&<span className="runtimeDot"/>}</button>
- </div>
- {sidebarTab==='architecture'?<>
+   <div className="executionHeader harnessRuntimeHeader"><div className="sideTitle"><Activity size={16}/> Agent 执行路径</div><span className={'executionState '+(busy||chatBusy?'running':harness?(items.length?'done':'warning'):'idle')}>{busy||chatBusy?'检索中':harness?(items.length?'有匹配':'未匹配'):'待搜索'}</span></div>
+  {harness?<>
+   <div className={'harnessRuntimeSummary '+(items.length?'matchFound':'noMatch')}><strong>{harnessResultDescription(harness,items)}</strong><span>{harness.version||'Progressive Search'} · {harness.attempts??0} 轮发现 · {leadAudit?.discovered??searchDiagnostics?.discovered??0} 条线索</span></div>
+   <div className="executionFlow">
+    {(harness.stages||[]).map((step,i)=><div className={'executionStep '+harnessStageState(step)} key={i}><span className="executionNode">{harnessStageState(step)==='finished'?'✓':harnessStageState(step)==='warning'?'!':i+1}</span><div className="executionStepBody"><strong>{({discover_primary:'发现商品',discover_fallback:'补充搜索',verify_details:'HTTP 验证详情',browser_render:'Browser Run 渲染核价',native_5173:'5173 官网站内搜索',edition_filter:'核对游戏',hard_filter_and_rank:'筛选与排序'})[step.stage]||step.stage}</strong><small>{step.stage==='browser_render'&&!step.configured?'未启用浏览器绑定':step.stage==='browser_render'&&!step.count?'未触发浏览器回退':step.stage==='native_5173'?(step.status==='rendered_search'?'已提交站内查询':'未完成：'+step.status)+' · '+step.count+' 条链接':step.stage==='hard_filter_and_rank'&&!step.count?'0 条匹配 · 不代表筛选成功':step.stage==='browser_render'?step.count+' 次渲染 · 恢复 '+(step.priced||0)+' 条价格':step.count+' 条'+(step.priced!=null?' · 有价格 '+step.priced+' 条':'')+(step.requests!=null?' · '+step.requests+' 次请求':'')}</small></div></div>)}
+   </div>
+   {harness.zero_result_reason&&<div className="executionAlert"><AlertTriangle size={15}/><span>{({search_not_configured:'搜索服务尚未配置',no_product_leads:'未发现可确认的商品详情链接',no_price_evidence:'价格证据不足',edition_evidence_missing:'版本证据不足',constraints_or_identity_not_verified:'没有商品通过全部硬条件',over_budget:'已有报价均超过预算',identity_or_availability_unverified:'游戏身份或商品状态未通过核验',other_constraints_unmet:'商品存在其他硬性条件不符'})[harness.zero_result_reason]||harness.zero_result_reason}</span></div>}
+   {harness.filter_gate&&<div className="harnessGateBreakdown"><span>有价格 {harness.filter_gate.with_price??0} 条</span><span>目标游戏有价 {harness.filter_gate.correct_game_priced??0} 条</span><span>超预算 {harness.filter_gate.over_budget??0} 条</span></div>}<div className="harnessRunCounts"><div>可推荐<strong>{items.length}</strong></div><div>待核价<strong>{unpricedLeads.length}</strong></div><div>已排除<strong>{excludedLeads.length}</strong></div></div>
+  </>:<div className="harnessRuntimeEmpty"><Search size={20}/><p>{busy||chatBusy?'搜索请求执行中，完成后显示服务端真实日志。':'搜索后这里会显示真实执行的 Skill、工具及结果状态。'}</p></div>}
+  <details className="executionDetails"><summary><Layers3 size={14}/> 数据源及工具调用 <ChevronDown size={14}/></summary><div className="executionDetailBody">{trace.filter(t=>t.tool?.startsWith('discover_')||t.tool==='gmmsj_category'||t.tool==='search_configuration'||t.tool?.startsWith('browser_')).map((t,i)=><p key={i}>{t.tool==='browser_native_5173'?'5173 站内搜索 · '+(t.result?.status||'未知')+' · '+(t.result?.detail_pages||0)+' 条链接':t.tool==='browser_render_summary'?'Browser Run · '+(t.result?.configured?'已配置':'未启用')+' · 恢复价格 '+(t.result?.recovered_prices||0)+' 条':t.tool==='browser_render_detail'?'浏览器核价 ('+(t.source||'平台')+') · '+(t.result?.recovered_price?'成功':'未恢复'):t.tool.startsWith('browser_category_')?'渲染分类页 · '+(t.result?.detail_pages||0)+' 条链接':t.tool.replace('discover_','')+' · '+(t.result?.detail_pages??t.result?.raw_results??0)+' 条'}{t.duration_ms!=null?' · '+t.duration_ms+'ms':''}</p>)}{!trace.length&&<p>暂无后端来源记录</p>}</div></details>
+  <p className="executionFootnote">这里的步骤数量来自后端 Trace；不是模拟的实时进度。</p>
+ <details className="harnessArchitectureDetails" open>
+  <summary className="harnessArchitectureToggle"><span><Layers3 size={16}/> Harness 框架</span><ChevronDown size={16}/></summary>
+  <div className="harnessArchitectureBody">
+   <p className="harnessArchitectureIntro">五层执行架构 · 需求解析到商品证据</p>
   <div className="harnessArchitectureCaption"><span>CONTROL PLANE + EXECUTION TOOLS</span><b>5 LAYERS</b></div>
   <div className="harnessArchitectureFlow">
    {HARNESS_LAYERS.map(layer=><div className={'harnessArchitectureLayer layer-'+layer.id} key={layer.id}>
@@ -209,22 +216,12 @@ function App(){
    <div><span className="outputBullet excluded"/><b>已排除</b><small>保留排除原因</small></div>
   </div>
   <div className="harnessDesignPrinciple"><Sparkles size={15}/><span>结构化解析需求；Harness 控制执行；代码核验商品。</span></div>
-  <details className="harnessInterviewDetails"><summary><span>面试讲解 · 约 45 秒</span><ChevronDown size={14}/></summary><div className="harnessInterviewContent"><p>{INTERVIEW_SCRIPT}</p><button type="button" onClick={copyInterviewScript}>{interviewCopied?'已复制讲解稿':'复制讲解稿'}</button></div></details>
-  <div className="harnessArchitectureDisclaimer">本页为架构说明，不代表每个 Skill 在本轮均已执行。点击「运行记录」查看后端实际返回。</div>
- </>:<>
-  <div className="executionHeader harnessRuntimeHeader"><div className="sideTitle"><Activity size={16}/> 本次搜索执行</div><span className={'executionState '+(busy||chatBusy?'running':harness?(items.length?'done':'warning'):'idle')}>{busy||chatBusy?'检索中':harness?(items.length?'有匹配':'未匹配'):'待搜索'}</span></div>
-  {harness?<>
-   <div className={'harnessRuntimeSummary '+(items.length?'matchFound':'noMatch')}><strong>{harnessResultDescription(harness,items)}</strong><span>{harness.version||'Progressive Search'} · {harness.attempts??0} 轮发现 · {leadAudit?.discovered??searchDiagnostics?.discovered??0} 条线索</span></div>
-   <div className="executionFlow">
-    {(harness.stages||[]).map((step,i)=><div className={'executionStep '+harnessStageState(step)} key={i}><span className="executionNode">{harnessStageState(step)==='finished'?'✓':harnessStageState(step)==='warning'?'!':i+1}</span><div className="executionStepBody"><strong>{({discover_primary:'发现商品',discover_fallback:'补充搜索',verify_details:'HTTP 验证详情',browser_render:'Browser Run 渲染核价',native_5173:'5173 官网站内搜索',edition_filter:'核对游戏',hard_filter_and_rank:'筛选与排序'})[step.stage]||step.stage}</strong><small>{step.stage==='browser_render'&&!step.configured?'未启用浏览器绑定':step.stage==='browser_render'&&!step.count?'未触发浏览器回退':step.stage==='native_5173'?(step.status==='rendered_search'?'已提交站内查询':'未完成：'+step.status)+' · '+step.count+' 条链接':step.stage==='hard_filter_and_rank'&&!step.count?'0 条匹配 · 不代表筛选成功':step.stage==='browser_render'?step.count+' 次渲染 · 恢复 '+(step.priced||0)+' 条价格':step.count+' 条'+(step.priced!=null?' · 有价格 '+step.priced+' 条':'')+(step.requests!=null?' · '+step.requests+' 次请求':'')}</small></div></div>)}
-   </div>
-   {harness.zero_result_reason&&<div className="executionAlert"><AlertTriangle size={15}/><span>{({search_not_configured:'搜索服务尚未配置',no_product_leads:'未发现可确认的商品详情链接',no_price_evidence:'价格证据不足',edition_evidence_missing:'版本证据不足',constraints_or_identity_not_verified:'没有商品通过全部硬条件',over_budget:'已有报价均超过预算',identity_or_availability_unverified:'游戏身份或商品状态未通过核验',other_constraints_unmet:'商品存在其他硬性条件不符'})[harness.zero_result_reason]||harness.zero_result_reason}</span></div>}
-   {harness.filter_gate&&<div className="harnessGateBreakdown"><span>有价格 {harness.filter_gate.with_price??0} 条</span><span>目标游戏有价 {harness.filter_gate.correct_game_priced??0} 条</span><span>超预算 {harness.filter_gate.over_budget??0} 条</span></div>}<div className="harnessRunCounts"><div>可推荐<strong>{items.length}</strong></div><div>待核价<strong>{unpricedLeads.length}</strong></div><div>已排除<strong>{excludedLeads.length}</strong></div></div>
-  </>:<div className="harnessRuntimeEmpty"><Search size={20}/><p>{busy||chatBusy?'搜索请求执行中，完成后显示服务端真实日志。':'暂无执行记录。先搜索一个游戏账号，再查看实际执行的 Skill 和工具。'}</p></div>}
-  <details className="executionDetails"><summary><Layers3 size={14}/> 数据源及工具调用 <ChevronDown size={14}/></summary><div className="executionDetailBody">{trace.filter(t=>t.tool?.startsWith('discover_')||t.tool==='gmmsj_category'||t.tool==='search_configuration'||t.tool?.startsWith('browser_')).map((t,i)=><p key={i}>{t.tool==='browser_native_5173'?'5173 站内搜索 · '+(t.result?.status||'未知')+' · '+(t.result?.detail_pages||0)+' 条链接':t.tool==='browser_render_summary'?'Browser Run · '+(t.result?.configured?'已配置':'未启用')+' · 恢复价格 '+(t.result?.recovered_prices||0)+' 条':t.tool==='browser_render_detail'?'浏览器核价 ('+(t.source||'平台')+') · '+(t.result?.recovered_price?'成功':'未恢复'):t.tool.startsWith('browser_category_')?'渲染分类页 · '+(t.result?.detail_pages||0)+' 条链接':t.tool.replace('discover_','')+' · '+(t.result?.detail_pages??t.result?.raw_results??0)+' 条'}{t.duration_ms!=null?' · '+t.duration_ms+'ms':''}</p>)}{!trace.length&&<p>暂无后端来源记录</p>}</div></details>
-  <p className="executionFootnote">这里的步骤数量来自后端 Trace；不是模拟的实时进度。</p>
- </>}
- <details className="executionDetails harnessAnalysisDetails"><summary><Sparkles size={14}/> OpenRouter 结果分析 <ChevronDown size={14}/></summary><div className="executionDetailBody"><label>模型选择</label><select value={model} onChange={e=>setModel(e.target.value)}>{modelOptions.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select><button className="accent wide" onClick={analyze} disabled={busy||chatBusy||analysisBusy||!items.length}>{analysisBusy?'分析中…':'运行分析'} <ArrowRight size={15}/></button>{analysis&&<div className="analysisText">{analysis}</div>}{usedModel&&<div className="modelMeta">实际调用：{usedModel}{usage&&<p>Token：{usage.total_tokens??'—'}</p>}</div>}</div></details>
+
+   <p className="harnessArchitectureDisclaimer">框架展示系统职责，实际调用以顶部执行路径及后端记录为准。</p>
+  </div>
+ </details>
+  <details className="executionDetails harnessAnalysisDetails"><summary><Sparkles size={14}/> OpenRouter 结果分析 <ChevronDown size={14}/></summary><div className="executionDetailBody"><label>模型选择</label><select value={model} onChange={e=>setModel(e.target.value)}>{modelOptions.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select><button className="accent wide" onClick={analyze} disabled={busy||chatBusy||analysisBusy||!items.length}>{analysisBusy?'分析中…':'运行分析'} <ArrowRight size={15}/></button>{analysis&&<div className="analysisText">{analysis}</div>}{usedModel&&<div className="modelMeta">实际调用：{usedModel}{usage&&<p>Token：{usage.total_tokens??'—'}</p>}</div>}</div></details>
+
 </aside></main>:<main className="comparePage"><button className="ghost" onClick={()=>setPage('results')}>← 返回商品结果</button><div className="overline">SIDE BY SIDE</div><h1>商品卡片对比</h1><p>已选 {selected.length} 个商品。所有价格均为未核验的搜索索引参考价。</p><div className="compareGrid">{selected.map(x=><article className="productCard" key={x.id}><div className="cardTop"><span className="platformTag">{x.platform}</span><span className="unverified">待核验</span></div><div className="cardPrice"><strong>{fmt(x.price)}</strong><span>{x.price_audit?.source||'索引参考价'} · 非实时</span></div><h3>{x.title}</h3>{[['游戏区服',x.server||'待确认'],[attrLabel(x),attrValue(x)],['实名状态',x.realname===true?'索引显示可二次实名':x.realname===false?'索引显示不可二次实名':'待确认'],['在售状态',x.status==='listed'?'详情标记在售（未验证可下单）':'未核验'],['交易费用','未知'],['最终到手价','费用未知，无法确认'],['价格证据',x.price_audit?.source||'搜索索引']].map(([k,v])=><div className="compareLine" key={k}><span>{k}</span><b>{v}</b></div>)}<a className="compareSource" href={x.url} target="_blank" rel="noopener noreferrer">查看原始来源 <ExternalLink size={14}/></a></article>)}</div><div className="infoBanner"><AlertTriangle size={18}/> 不同区服或账号配置不可视为同款；缺少可信库存与费用信息时，不计算“全网最低价”。</div></main>}
  {page==='results'&&chosen.length>0&&<div className="compareDock"><span>已选 <b>{chosen.length}</b> / 3 个账号</span><button className="accent" onClick={()=>setPage('compare')}>查看卡片对比 <ArrowRight size={16}/></button></div>}
  </div>
