@@ -1,49 +1,16 @@
-const inventory = [
- {id:'GP-101',game:'王者荣耀',title:'典藏皮肤收藏账号',price:980,skins:86,rare:5,risk:'低',verified:true},
- {id:'GP-102',game:'王者荣耀',title:'高段位英雄全收集',price:1280,skins:112,rare:3,risk:'中',verified:true},
- {id:'GP-103',game:'王者荣耀',title:'限定皮肤精选账号',price:760,skins:71,rare:7,risk:'低',verified:true},
- {id:'GP-104',game:'王者荣耀',title:'热门英雄入门账号',price:420,skins:34,rare:1,risk:'中',verified:false},
- {id:'GP-201',game:'原神',title:'多五星角色冒险账号',price:880,skins:0,rare:6,risk:'中',verified:true}
-];
-const tools = [
- {type:'function',function:{name:'search_game_assets',description:'按游戏、最高预算和限定皮肤数量搜索演示商品',parameters:{type:'object',properties:{game:{type:'string'},max_price:{type:'number'},min_rare:{type:'number'}},required:[]}}},
- {type:'function',function:{name:'estimate_account',description:'根据英雄、皮肤、限定皮肤数量计算模拟估值，非真实市场价格',parameters:{type:'object',properties:{heroes:{type:'number'},skins:{type:'number'},rare:{type:'number'}},required:['heroes','skins','rare']}}},
- {type:'function',function:{name:'check_trade_risk',description:'检查演示商品的风险标记',parameters:{type:'object',properties:{asset_id:{type:'string'}},required:['asset_id']}}}
-];
-function execute(name,args){
- if(name==='search_game_assets')return inventory.filter(x=>(!args.game||x.game.includes(args.game))&&(!args.max_price||x.price<=args.max_price)&&(!args.min_rare||x.rare>=args.min_rare));
- if(name==='estimate_account'){
-  const heroes=Math.max(0,Math.min(500,Number(args.heroes)||0)),skins=Math.max(0,Math.min(1000,Number(args.skins)||0)),rare=Math.max(0,Math.min(skins,Number(args.rare)||0));
-  const base=heroes*2+skins*6+rare*55;return {currency:'CNY',range:[Math.round(base*.75),Math.round(base*1.25)],basis:'演示用固定系数，未使用真实市场成交数据',not_financial_quote:true};
- }
- if(name==='check_trade_risk'){const x=inventory.find(x=>x.id===args.asset_id);return x?{id:x.id,risk:x.risk,verified:x.verified,warning:'仅为模拟标记；真实交易需核验归属、找回风险及平台规则'}:{error:'未找到商品'};}
- return {error:'未知工具'};
-}
-const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'};
-const reply=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers});
-export default {async fetch(request,env){
- const url=new URL(request.url);
- if(url.pathname==='/api/assets'&&request.method==='GET')return reply(inventory);
- if(url.pathname==='/api/chat'&&request.method==='POST'){
-  if(!env.OPENROUTER_API_KEY)return reply({error:'尚未配置 OPENROUTER_API_KEY'},503);
-  let body;try{body=await request.json()}catch{return reply({error:'请求 JSON 无效'},400)}
-  const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return reply({error:'请输入问题'},400);
-  const model=env.OPENROUTER_MODEL||'openai/gpt-4o-mini';
-  const messages=[{role:'system',content:'你是 GamePilot AI 游戏资产助手。只使用工具返回的商品和价格，不得捏造库存、市场价格或交易结果。估值是模拟计算，明确说明不代表真实行情。你不能进行真实交易。对用户使用简洁中文。涉及交易时提示需要用户确认及平台合规核验。'}, {role:'user',content:prompt}];
-  const trace=[];let answer='';let usage={};
-  try{
-   for(let step=0;step<4;step++){
-    const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Authorization':`Bearer ${env.OPENROUTER_API_KEY}`,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:'auto',temperature:0.2})});
-    if(!response.ok)return reply({error:`模型服务返回 ${response.status}`,details:(await response.text()).slice(0,300)},502);
-    const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return reply({error:'模型未返回消息'},502);
-    messages.push(msg);
-    if(!msg.tool_calls?.length){answer=msg.content||'任务已完成';break;}
-    for(const call of msg.tool_calls){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{args={}}const result=execute(call.function.name,args);trace.push({tool:call.function.name,args,result});messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)});}
-   }
-   if(!answer)answer='已达到本次工具调用轮次上限，请缩小需求后重试。';
-   return reply({answer,trace,usage,model});
-  }catch(e){return reply({error:'请求失败，请检查网络和模型配置'},502)}
- }
- if(url.pathname.startsWith('/api/'))return reply({error:'接口不存在'},404);
- return env.ASSETS.fetch(request);
-}};
+const inventory=[
+{id:'C8THEP',platform:'盼之账号',source:'公开历史记录 · 待复核',kind:'public',game:'王者荣耀',server:'安卓QQ',price:450,heroes:132,skins:229,rare:'荣耀典藏 1 · 传说 9',realname:false,url:'https://www.pzds.com/goodsDetails/C8THEP/6',time:'2026-10-29 上架；现价待核实'},
+{id:'C8YDZP',platform:'盼之账号',source:'公开历史记录 · 待复核',kind:'public',game:'王者荣耀',server:'苹果QQ',price:565,heroes:131,skins:311,rare:'荣耀典藏 1 · 传说 16',realname:true,url:'https://www.pzds.com/goodsDetails/C8YDZP/6',time:'2026-11-17 上架；现价待核实'},
+{id:'DEMO-PX-001',platform:'螃蟹账号',source:'模拟演示数据',kind:'demo',game:'王者荣耀',server:'安卓QQ',price:580,heroes:130,skins:245,rare:'荣耀典藏 1 · 传说 12',realname:true,url:'',time:'模拟记录'},
+{id:'DEMO-5173-002',platform:'5173',source:'模拟演示数据',kind:'demo',game:'王者荣耀',server:'安卓QQ',price:780,heroes:125,skins:300,rare:'荣耀典藏 2 · 传说 14',realname:true,url:'',time:'模拟记录'},
+{id:'DEMO-GMM-003',platform:'G买卖',source:'模拟演示数据',kind:'demo',game:'王者荣耀',server:'安卓QQ',price:990,heroes:128,skins:338,rare:'荣耀典藏 2 · 传说 20',realname:false,url:'',time:'模拟记录'},
+{id:'DEMO-PX-004',platform:'螃蟹账号',source:'模拟演示数据',kind:'demo',game:'王者荣耀',server:'苹果QQ',price:490,heroes:120,skins:201,rare:'荣耀典藏 1 · 传说 8',realname:true,url:'',time:'模拟记录'},
+{id:'DEMO-5173-005',platform:'5173',source:'模拟演示数据',kind:'demo',game:'王者荣耀',server:'安卓微信',price:390,heroes:116,skins:170,rare:'传说 5',realname:true,url:'',time:'模拟记录'}];
+const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
+function parse(q){const server=q.match(/安卓QQ|苹果QQ|安卓微信/)?.[0]||'all';const budget=q.match(/(\d{2,6})\s*(?:元|块|预算)/)?.[1];return {server,max_price:budget?Number(budget):1000,realname:/可二次实名|支持二次实名/.test(q)?'yes':'all',sort:/皮肤/.test(q)?'skins':'fit',source:'all'}}
+function search(filters={}){const f={server:'all',max_price:1000,realname:'all',sort:'fit',source:'all',...filters};const max=Number(f.max_price);let items=inventory.filter(x=>(f.server==='all'||x.server===f.server)&&(!Number.isFinite(max)||max<=0||x.price<=max)&&(f.realname==='all'||x.realname===(f.realname==='yes'))&&(f.source==='all'||x.kind===f.source));items.sort((a,b)=>f.sort==='low'?a.price-b.price:f.sort==='skins'?b.skins-a.skins:b.skins/b.price-a.skins/a.price);return items}
+function execute(name,args){if(name==='search_listings')return {items:search(args),note:'离线样本：公开历史数据未核实实时状态；其他记录为模拟演示'};if(name==='compare_prices'){const ids=Array.isArray(args.ids)?args.ids:[];return ids.map(id=>{const x=inventory.find(v=>v.id===id);return x?{id,platform:x.platform,listed_price_cny:x.price,required_fees:'unknown',final_price:'unknown',source:x.source}: {id,error:'商品不存在'}})}if(name==='check_risks'){const ids=Array.isArray(args.ids)?args.ids:[];return ids.map(id=>{const x=inventory.find(v=>v.id===id);return x?{id,realname_changeable:x.realname,fees:'unknown',status:'not_live_verified',warning:'账号归属、交易保障和找回风险需在源站核验'}:{id,error:'商品不存在'}})}return {error:'未知工具'}}
+const tools=[{type:'function',function:{name:'search_listings',description:'查询有来源标识的离线游戏账号样本，不是实时市场搜索',parameters:{type:'object',properties:{server:{type:'string',enum:['all','安卓QQ','苹果QQ','安卓微信']},max_price:{type:'number'},realname:{type:'string',enum:['all','yes','no']},sort:{type:'string',enum:['fit','low','skins']},source:{type:'string',enum:['all','public','demo']}},required:[]}}},{type:'function',function:{name:'compare_prices',description:'比较挂牌参考价并明确未知服务费',parameters:{type:'object',properties:{ids:{type:'array',items:{type:'string'}}},required:['ids']}}},{type:'function',function:{name:'check_risks',description:'检查实名与未核验交易风险',parameters:{type:'object',properties:{ids:{type:'array',items:{type:'string'}}},required:['ids']}}}];
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/search'&&request.method==='POST'){let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const query=String(body.query||'').slice(0,1000),filters={...parse(query),...(body.filters||{})};const start=Date.now(),items=search(filters);return json({items,filters,summary:'返回'+items.length+'条离线候选；并非实时全网搜索',trace:[{tool:'parse_requirements',args:{query},result:filters,mode:'服务端规则',duration_ms:0},{tool:'search_listings',args:filters,result:{count:items.length},mode:'离线索引',duration_ms:Date.now()-start},{tool:'check_risks',args:{ids:items.map(x=>x.id)},result:{warning:'必需服务费与实时在售状态未知'},mode:'确定性规则',duration_ms:0}]})}
+if(url.pathname==='/api/chat'&&request.method==='POST'){if(!env.OPENROUTER_API_KEY)return json({error:'尚未配置 OPENROUTER_API_KEY；基础搜索和比较仍可使用'},503);let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);const model=env.OPENROUTER_MODEL||'openai/gpt-4o-mini';const messages=[{role:'system',content:'你是GamePilot游戏账号购买决策Agent。必须先调用search_listings获取商品；商品数据是离线公开历史样本或模拟数据，不得声称实时、真实成交或全网最低价。不要编造商品、价格、服务费、账号同一性。仅比较相似账号；不同区服不得判定同款。回复简洁中文，说明来源和交易风险。不可执行支付。'}, {role:'user',content:prompt}];const trace=[];let answer='';let usage={};let items=[];try{for(let step=0;step<4;step++){const start=Date.now();const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+env.OPENROUTER_API_KEY,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:step===0?'required':'auto',temperature:0.1}),signal:AbortSignal.timeout(20000)});if(!response.ok)return json({error:'模型服务返回 '+response.status,details:(await response.text()).slice(0,180)},502);const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return json({error:'模型没有返回消息'},502);messages.push(msg);if(!msg.tool_calls?.length){answer=msg.content||'分析完成';break}for(const call of msg.tool_calls.slice(0,5)){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{}const result=execute(call.function.name,args);if(call.function.name==='search_listings')items=result.items||[];trace.push({tool:call.function.name,args,result,mode:'OpenRouter 工具调用',duration_ms:Date.now()-start});messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)})}}return json({answer:answer||'已达到调用上限，请缩小需求',trace,items,usage,model})}catch{return json({error:'Agent 调用失败，请检查 OpenRouter 配置和网络'},502)}}
+if(url.pathname.startsWith('/api/'))return json({error:'接口不存在'},404);return env.ASSETS.fetch(request)}};
