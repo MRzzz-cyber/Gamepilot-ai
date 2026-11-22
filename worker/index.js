@@ -167,6 +167,13 @@ function mapleEditionMatches(title,version){
  if(version==='国服')return china&&!global&&!taiwan;
  return false;
 }
+function editionEvidence(text,edition,gameName){
+ const version=String(edition||'').trim();if(!version)return true;
+ if(gameName==='冒险岛')return mapleEditionMatches(text,version);
+ const aliases={ '台服／枫之谷':['台服','枫之谷','TMS'],'台服':['台服','臺服','台湾服','台灣服'],'国际服':['国际服','全球服','GMS','Global'],'国服':['国服','大陆服','简中服'],'日服':['日服','日本服','JP'],'韩服':['韩服','韩国服','KR'],'手游版':['手游版','手机版','移动端']};
+ const words=aliases[version]||[version];
+ return words.some(word=>String(text||'').toLowerCase().includes(word.toLowerCase()));
+}
 function requirements(query,filters,game){
  const q=String(query||'');
  const budget=Number(filters.max_price)||1000;
@@ -369,7 +376,7 @@ async function agentSearchListings(query,args,env){
  const discovery=await discover(query,filters,env);
  const enriched=await enrichCandidates(discovery.candidates);
  // Preserve unknown-edition leads for diagnostics; do not silently treat CN accounts as TMS/GMS.
- const editionSafe=game?.name==='冒险岛'&&filters.version?enriched.filter(x=>mapleEditionMatches([x.title,x.description,x.page_title].filter(Boolean).join(' '),filters.version)&&(!x.detail_game||x.detail_game===game.name)):enriched;
+ const editionSafe=filters.version?enriched.filter(x=>editionEvidence([x.title,x.description,x.page_title].filter(Boolean).join(' '),filters.version,game?.name)&&(!x.detail_game||x.detail_game===game.name)):enriched;
  const editionRejected=enriched.length-editionSafe.length;
  const req=game?requirements(query,filters,game):null;
  const items=editionSafe.filter(x=>x.game_confirmed||x.detail_game===x.game).map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.status!=='wrong_game'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
@@ -389,7 +396,16 @@ async function watchPrice(raw,env){
  if(env.PRICE_HISTORY&&current){try{history.push(current);await env.PRICE_HISTORY.put(key,JSON.stringify(history.slice(-30)),{expirationTtl:60*60*24*90})}catch{return {url:u.href,current,previous,change,history_saved:false,warning:'历史价格保存失败',status:checked.status}}}
  return {url:u.href,current,previous,change,history_saved:!!env.PRICE_HISTORY&&!!current,history_points:history.length,availability:checked.status,updated_at:checked.updated_at||null,warning:!validPrice?'当前详情页无可信价格，或商品已售出/过期；不生成价格变化':!env.PRICE_HISTORY?'未绑定 PRICE_HISTORY KV，当前仅支持即时价格检查':'历史价格为此前检查时的快照，并非连续实时监控'};
 }
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/acceptance'&&request.method==='GET'){const started=Date.now();const game=GAME_CATALOG.find(g=>g.name==='冒险岛');const feed=await gmmsjCategoryLeads(game,{version:'国服'});const sample=feed.items.slice(0,3);const checks=await Promise.all(sample.map(async x=>{const v=await verifyListing(x.url);return {url:x.url,title:x.title,price:v.price??null,status:v.status,detail_game:v.detail_game||null,updated_at:v.updated_at||null,detail_check:v.message||null}}));return json({version:'2026-11-23-feed-acceptance-v1',source:'G买卖 冒险岛国服',category_status:feed.diagnostic,category_links:feed.links_found||0,unique_product_links:feed.items.length,detail_samples:checks,elapsed_ms:Date.now()-started,passed:feed.items.length>0&&checks.some(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'),note:'仅检查公开商品页面；不代表库存或购买能力得到确认。'});}if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/price-watch'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await watchPrice(String(b.url||'').slice(0,500),env))}if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/search'&&request.method==='POST'){
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
+ const cases=[
+  ['帮我找一个鸣潮账号 2000元以内','鸣潮'],
+  ['搜索《崩坏：星穹铁道》账号 1500元以内','崩坏：星穹铁道'],
+  ['找一个冒险岛台服账号','冒险岛'],
+  ['找一个王者荣耀苹果QQ账号','王者荣耀']
+ ];
+ const checks=cases.map(([query,expected])=>{const game=resolveGame(query),clarification=clarifyGameEdition(query)||clarifyGeneralGame(query),plans=game?searchPlans(game,{}):[];return {query,game:game?.name||null,queries:plans.length,clarification_ready:!!clarification,passed:game?.name===expected&&plans.length>0}});
+ return json({version:'universal-smoke-v1',checks,passed:checks.every(x=>x.passed),note:'离线确定性逻辑测试，不代表真实搜索服务或商品价格可用'});
+}if(url.pathname==='/api/acceptance'&&request.method==='GET'){const started=Date.now();const game=GAME_CATALOG.find(g=>g.name==='冒险岛');const feed=await gmmsjCategoryLeads(game,{version:'国服'});const sample=feed.items.slice(0,3);const checks=await Promise.all(sample.map(async x=>{const v=await verifyListing(x.url);return {url:x.url,title:x.title,price:v.price??null,status:v.status,detail_game:v.detail_game||null,updated_at:v.updated_at||null,detail_check:v.message||null}}));return json({version:'2026-11-23-feed-acceptance-v1',source:'G买卖 冒险岛国服',category_status:feed.diagnostic,category_links:feed.links_found||0,unique_product_links:feed.items.length,detail_samples:checks,elapsed_ms:Date.now()-started,passed:feed.items.length>0&&checks.some(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'),note:'仅检查公开商品页面；不代表库存或购买能力得到确认。'});}if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/price-watch'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await watchPrice(String(b.url||'').slice(0,500),env))}if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/search'&&request.method==='POST'){
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000),parsed=parse(query),incoming=body.filters||{};
  const filters={...parsed,...incoming,server:incoming.server&&incoming.server!=='all'?incoming.server:parsed.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsed.realname,max_price:Number(incoming.max_price)>0?Number(incoming.max_price):parsed.max_price};
