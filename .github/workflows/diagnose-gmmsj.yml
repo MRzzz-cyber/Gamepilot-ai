@@ -40,8 +40,8 @@ jobs:
             const index=list.indexOf('data-bookid="'+target+'"');
             const next=list.indexOf('<li class="media"',index+30);
             const card=list.slice(index,next<0?index+17000:next);
-            const p=card.match(/<p[^>]*class="[^"]*price[^"]*"[^>]*>[\\s\\S]{0,180}?<\\/p>/i);
-            const links=[...card.matchAll(/detail_([a-z0-9]+)\\.shtml/gi)].map(x=>x[1]);
+            const p=card.match(/<p[^>]*class="[^"]*price[^"]*"[^>]*>[\s\S]{0,180}?<\/p>/i);
+            const links=[...card.matchAll(/detail_([a-z0-9]+)\.shtml/gi)].map(x=>x[1]);
             const leads=await parsed.gmmsjCategoryLeads({name:'冒险岛'},{version:'国服'},list);
             const selected=leads.items.find(x=>x.url.includes(target));
             const detail=await parsed.verifyListing('https://www.gmmsj.com/dy/5_zh/detail_'+target+'.shtml');
