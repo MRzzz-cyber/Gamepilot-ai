@@ -120,10 +120,15 @@ async function verifyListing(raw,renderedHtml=null){
  }
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
  const textBody=decodeEntities(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
- const gameLabel=textBody.match(/(?:所属游戏|游戏名称|游戏分类|游戏区服)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·_-]{2,28})/u)?.[1]||null;
+ // G买卖's product footer includes a hidden "游戏名称" edit form. That value is
+ // not the listing's identity (it can parse as "商品分类"). Prefer the actual
+ // document title; inspect explicit game labels only in the product section.
+ const productBody=textBody.split(/(?:商品留言|商品信息填写|请输入手机接收到|获取上架模板信息失败)/)[0].slice(0,12000);
+ const gameLabel=productBody.match(/(?:所属游戏|游戏名称)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·_-]{2,28})/u)?.[1]||null;
  const strongTitleGame=pageTitle.match(/^【?([\p{Script=Han}A-Za-z0-9·：_-]{2,24})】?(?:游戏)?(?:账号|帐号|成品号)(?:\s|[（【|：-]|$)/u)?.[1]||null;
  const titleGame=strongTitleGame&&!/(?:交易|商品|平台|卖号|买号|账号)/.test(strongTitleGame)?strongTitleGame:null;
- const detailGame=normalizeDetailGame(gameLabel)||GAME_CATALOG.find(g=>listingGameMatches(pageTitle,'',g))?.name||titleGame;
+ const catalogueTitleGame=GAME_CATALOG.find(g=>listingGameMatches(pageTitle,'',g))?.name||null;
+ const detailGame=catalogueTitleGame||normalizeDetailGame(gameLabel)||titleGame;
  const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;const updatedAt=listingUpdatedAt(html);const stale=isStaleListing(updatedAt);
  const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格|goodsDetails|sellingPrice|salePrice|goodsPrice)/i.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
  // Search only the page title and explicit structured availability for strong sold evidence.
