@@ -377,3 +377,29 @@ test('G买卖冒险岛真实标题优先于隐藏编辑表单的「游戏名称 
  assert.equal(detail.price,1700);
  assert.equal(detail.status,'listed');
 });
+
+
+test('G买卖官方 data-bookid 大型商品卡片提取真实价，忽略优惠券和相邻商品',async()=>{
+ const id1='00005000000017951759544860003785',id2='00005000000017945833707520002917';
+ const card=(id,title,price)=>'<li class="media" data-bookid="'+id+'">'+
+  '<div class="media-body"><h4 class="media-heading">账号 ['+title+']高战力账号</h4><div class="coupon" data-bind="visible: Number('+price+'.00) < $root.minCoupon()">可用优惠券</div>'+
+  '<div class="details">冒险岛-风之大陆（电信）-威尔</div>'+
+  '<div class="extra">'+('<span data-bind="click:noop">其他商品描述</span>'.repeat(250))+'</div>'+
+  '<div class="text-center price col-md-1" style="white-space: nowrap;">¥<i>'+price+'.00</i></div>'+
+  '<a href="/dy/5_zh/detail_'+id+'.shtml">查看详情</a></div></li>';
+ const html='<html><body><ul>'+card(id1,'夜光法师 290级',1700)+card(id2,'剑豪 289级',2888)+'</ul></body></html>';
+ const api=new Function('fetch','URL','AbortSignal',source.replace('export default {','const __worker = {')+';return {gmmsjCategoryLeads,gmmsjStructuredCategoryCards}')(
+  async()=>new Response(html,{status:200,headers:{'Content-Type':'text/html'}}),URL,AbortSignal);
+ const raw=api.gmmsjStructuredCategoryCards(html);
+ assert.equal(raw.get(id1).price,1700);
+ assert.equal(raw.get(id2).price,2888);
+ assert.match(raw.get(id1).title,/夜光法师/);
+ const result=await api.gmmsjCategoryLeads({name:'冒险岛'},{version:'国服'});
+ assert.equal(result.items.length,2);
+ assert.equal(result.priced,2);
+ assert.equal(result.items[0].price,1700);
+ assert.equal(result.items[1].price,2888);
+ assert.match(result.items[0].title,/夜光法师/);
+ assert.match(result.items[1].title,/剑豪/);
+ assert.equal(result.items[0].price_evidence,'gmmsj_category_visible_price');
+});
