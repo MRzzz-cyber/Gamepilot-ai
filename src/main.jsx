@@ -70,6 +70,7 @@ function App(){
  async function run(q=query,filters=null){
   const text=String(q||'').trim();if(!text)return;
   const {id,signal}=beginSearch();
+  const hintedGame=extractRequestedGame(text);if(hintedGame)setGame(hintedGame);
   setBusy(true);setChatBusy(false);resetDiscovery();setQuery(text);setPage('results');
   setChatHistory([]);setRequirementsState({});setSuggestedReplies([]);
   try{
@@ -105,7 +106,7 @@ function App(){
   const switchingGame=!!(nextGame&&nextGame!==requirementsState?.game);
   const previous=switchingGame?[]:chatHistory;
   const nextHistory=[...previous,{role:'user',content:message}];
-  setChatHistory(nextHistory);setChatInput('');setBusy(false);setChatBusy(true);
+  setChatHistory(nextHistory);setChatInput('');setBusy(false);setChatBusy(true);if(switchingGame){setGame(nextGame);setServer('all');setRealname('all');setRequirementsState({})}
   resetDiscovery();setSuggestedReplies([]);setPage('results');setQuery(message);
   try{
    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
