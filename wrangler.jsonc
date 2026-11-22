@@ -11,5 +11,8 @@
   },
   "browser": {
     "binding": "BROWSER"
-  }
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
 }
