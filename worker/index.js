@@ -2,18 +2,49 @@
 const inventory=[];
 const KNOWN_SOLD=new Set(['C8YDZP']);
 const HOSTS=new Set(['www.pzds.com','pzds.com','www.pxb7.com','pxb7.com','www.5173.com','5173.com','www.gmmsj.com','gmmsj.com']);
+function decodeEntities(s){return String(s||'').replace(/&quot;|&#34;/g,'"').replace(/&amp;/g,'&').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>')}
+function structuredOffers(html){
+ const blocks=[...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].slice(0,12);
+ const offers=[];function visit(node,depth=0){if(depth>7||!node||typeof node!=='object')return;if(Array.isArray(node)){node.forEach(x=>visit(x,depth+1));return}if(node.offers)visit(node.offers,depth+1);if(node['@graph'])visit(node['@graph'],depth+1);if(node.price!=null){const p=Number(node.price);if(Number.isFinite(p)&&p>0&&p<10000000)offers.push({price:p,currency:node.priceCurrency||null,availability:String(node.availability||'')})}}
+ for(const m of blocks){try{visit(JSON.parse(decodeEntities(m[1])))}catch{}}
+ return offers;
+}
+function extractDetailPrice(html){
+ const offers=structuredOffers(html);const c=offers.find(o=>!o.currency||o.currency==='CNY');if(c)return {price:c.price,price_evidence:'detail_structured',availability:c.availability};
+ const meta=[...html.matchAll(/<meta\s+[^>]*>/gi)].map(x=>x[0]);for(const tag of meta){if(!/(?:product:price:amount|og:price:amount|itemprop=["']price)/i.test(tag))continue;const m=tag.match(/content=["']([0-9]+(?:\.[0-9]{1,2})?)["']/i);if(m&&Number(m[1])>0)return {price:Number(m[1]),price_evidence:'detail_meta',availability:null}}
+ return {price:null,price_evidence:'unknown',availability:null};
+}
 async function verifyListing(raw){
  let u;try{u=new URL(raw)}catch{return {status:'invalid_url',message:'无效商品链接'}}
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port)return {status:'unsupported_source',message:'不支持此域名'};
- const id=u.pathname.split('/').includes('goodsDetails')?u.pathname.split('/')[u.pathname.split('/').indexOf('goodsDetails')+1]:null;
- if(KNOWN_SOLD.has(id))return {status:'sold',message:'用户已提供售出截图，排除推荐；未重新联网核验',source_url:u.href,verified_at:null};
+ const id=u.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||null;
+ if(KNOWN_SOLD.has(id))return {status:'sold',message:'已知售出商品，排除推荐',source_url:u.href,verified_at:null,price:null};
  try{
- const r=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(7000),headers:{Accept:'text/html'}});
- if(r.status!==200||!(r.headers.get('content-type')||'').includes('text/html'))return {status:'unverified',message:'商品页面不可核验',http_status:r.status};
- const html=(await r.text()).slice(0,300000);
- const sold=/(已售出|商品已下架|该商品已售|已被购买|sold out|out of stock)/i.test(html);
- return {status:sold?'sold':'unverified',message:sold?'页面包含售出或下架提示，已排除':'没有可信的在售和价格证据，禁止推荐',checked_at:new Date().toISOString(),verification_method:'公开HTML检查'};
- }catch{return {status:'unverified',message:'页面访问失败，不能确认在售'}}
+ const r=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(6500),headers:{Accept:'text/html,application/xhtml+xml','User-Agent':'GamePilotBot/0.8 (+public-product-verification)'}});
+ const contentType=r.headers.get('content-type')||'';
+ if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（可能需要移动端或登录）',http_status:r.status,source_url:u.href};
+ const html=(await r.text()).slice(0,500000);
+ const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
+ const detail=extractDetailPrice(html);
+ // Search only the page title and explicit structured availability for strong sold evidence.
+ const sold=/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
+ const live=/(?:InStock)$/i.test(detail.availability||'');
+ return {status:sold?'sold':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',price:detail.price,price_evidence:detail.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
+ }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
+}
+async function enrichCandidates(candidates){
+ const top=candidates.slice(0,12);
+ const checks=await Promise.all(top.map(x=>verifyListing(x.url)));
+ return candidates.map((x,i)=>{
+  if(i>=checks.length)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
+  const v=checks[i];const price=v.price!=null?v.price:x.price;
+  return {...x,status:v.status,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
+ });
+}
+function coverageReport(candidates,trace){
+ const hosts=['盼之账号','螃蟹账号','5173','G买卖'];
+ const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','螃蟹账号':'pxb7.com','5173':'5173.com','G买卖':'gmmsj.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
+ return {platforms,totals:{discovered:candidates.length,with_price:candidates.filter(c=>c.price!=null).length,detail_checked:candidates.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:candidates.filter(c=>c.detail_price!=null).length,listed:candidates.filter(c=>c.status==='listed').length,sold:candidates.filter(c=>c.status==='sold').length}};
 }
 
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
@@ -93,10 +124,10 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  const discovery=await discover(query,filters,env);
  const requested=String(body.model||'').slice(0,150);
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
- const ai=await agentReview(query,discovery.candidates,filters,env,model);
+ const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);const display=enriched.filter(x=>x.status!=='sold');const ai=await agentReview(query,display,filters,env,model);
  const noteMap=new Map((ai.notes||[]).map(n=>[n.id,n]));
- const candidates=discovery.candidates.map(x=>({...x,agent_note:noteMap.get(x.id)||null}));
- return json({items:[],candidates,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
+ const candidates=display.map(x=>({...x,agent_note:noteMap.get(x.id)||null}));
+ return json({items:[],candidates,coverage,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
 }
 
 if(url.pathname==='/api/chat'&&request.method==='POST'){if(!env.OPENROUTER_API_KEY)return json({error:'尚未配置 OPENROUTER_API_KEY；基础搜索和比较仍可使用'},503);let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);const requested=String(body.model||'').slice(0,150);const available=await listModels(env);const model=requested&&available.models.some(x=>x.id===requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;const messages=[{role:'system',content:'你是GamePilot游戏账号购买决策Agent。必须先调用search_listings获取商品；可能找到搜索索引候选，但未核验在售，禁止将索引候选称为可购买商品；禁止编造商品、价格或实时库存。不要编造商品、价格、服务费、账号同一性。仅比较相似账号；不同区服不得判定同款。回复简洁中文，说明来源和交易风险。不可执行支付。'}, {role:'user',content:prompt}];const trace=[];let answer='';let usage={};let items=[];try{for(let step=0;step<4;step++){const start=Date.now();const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+env.OPENROUTER_API_KEY,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:step===0?'required':'auto',temperature:0.1}),signal:AbortSignal.timeout(20000)});if(!response.ok)return json({error:'模型服务返回 '+response.status,details:(await response.text()).slice(0,180)},502);const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return json({error:'模型没有返回消息'},502);messages.push(msg);if(!msg.tool_calls?.length){answer=msg.content||'分析完成';break}for(const call of msg.tool_calls.slice(0,5)){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{}const result=call.function.name==='search_listings'?{items:[],discovery:await discover(prompt,args,env)}:execute(call.function.name,args);if(call.function.name==='search_listings')items=result.items||[];trace.push({tool:call.function.name,args,result,mode:'OpenRouter 工具调用',duration_ms:Date.now()-start});messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)})}}return json({answer:answer||'已达到调用上限，请缩小需求',trace,items,usage,model})}catch{return json({error:'Agent 调用失败，请检查 OpenRouter 配置和网络'},502)}}
