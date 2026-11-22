@@ -234,6 +234,10 @@ function App(){
    <div><span className="outputBullet excluded"/><b>已排除</b><small>保留排除原因</small></div>
   </div>
   <div className="harnessDesignPrinciple"><Sparkles size={15}/><span>结构化解析需求；Harness 控制执行；代码核验商品。</span></div>
+   <details className="harnessSkillAudit"><summary><Layers3 size={14}/> 本轮 Skill 执行契约 <ChevronDown size={14}/></summary>
+    <div className="harnessSkillRows">{harness?.skill_flow?.steps?.length?harness.skill_flow.steps.map(step=><div key={step.id}><strong>{({'requirements-parsing':'需求解析','marketplace-discovery':'平台发现','detail-verification':'详情核验','evidence-filtering':'证据过滤','preference-ranking':'偏好排序'})[step.id]||step.id}</strong><span>{({'completed':'已执行','empty':'没有线索','not_executed':'未执行','no_match':'未匹配','skipped_no_matches':'没有候选可排序'})[step.status]||step.status}</span></div>):<p>搜索后展示后端真实执行的 Skill 阶段。</p>}</div>
+    <p>SKILL.md 是标准化能力契约；当前执行引擎是确定性代码，并非模型自动加载 Skill。</p>
+   </details>
 
    <p className="harnessArchitectureDisclaimer">框架展示系统职责，实际调用以顶部执行路径及后端记录为准。</p>
   </div>
