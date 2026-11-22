@@ -119,15 +119,23 @@ function evaluateCandidate(x,req){
 function searchPlans(game,filters){
  const budget=Math.max(1,Number(filters.max_price)||1000);
  const server=game.server&&filters.server!=='all'?filters.server:'';
- const core=[game.name+' 账号 出售',game.name+' 商品编号',game.name+' 账号 价格',game.name+' '+(server||'成品号'),game.name+' 账号 售价',game.name+' 角色 出售'];
- const targeted=game.name==='王者荣耀'
- ? [game.name+' '+(server||'苹果QQ')+' 售价',game.name+' 账号 可二次实名',game.name+' 皮肤 账号 ￥',game.name+' 账号 '+Math.round(budget*0.8)+'元',game.name+' 账号 '+Math.round(budget*1.1)+'元']
- : game.name==='冒险岛'
- ? [game.name+' 成品号 售价',game.name+' 弓箭手 账号 ￥',game.name+' 角色 账号 ￥',game.name+' 账号 '+Math.round(budget*0.8)+'元',game.name+' 账号 '+Math.round(budget*1.1)+'元']
- : [game.name+' 成品号 售价',game.name+' 角色 账号 ￥',game.name+' 装备 账号 ￥'];
+ const focused=game.name==='王者荣耀'
+  ? [game.name+' '+(server||'苹果QQ')+' 账号',game.name+' '+(server||'苹果QQ')+' 皮肤',game.name+' 二次实名 账号']
+  : game.name==='冒险岛'
+  ? [game.name+' 成品号',game.name+' 角色 账号',game.name+' 弓箭手 账号']
+  : [game.name+' 成品号',game.name+' 账号 售价',game.name+' 角色 出售'];
  return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>{
-  const terms=[...new Set([...core,...targeted])].slice(0,10);
-  return terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i}));
+  const detailPath=d.host==='pzds.com'?'inurl:goodsDetails':d.host==='gmmsj.com'?'inurl:detail_':'';
+  // Put product-page-focused searches first; only the first six plans per platform are executed.
+  const terms=[
+   detailPath+' '+game.name+' '+(server||'账号'),
+   detailPath+' '+game.name+' 售价',
+   ...focused,
+   game.name+' 商品编号',
+   game.name+' 账号 出售',
+   game.name+' 账号 '+Math.round(budget*0.8)+'元'
+  ];
+  return [...new Set(terms.map(x=>x.trim()))].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i}));
  });
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
