@@ -10,9 +10,9 @@ function structuredOffers(html){
  return offers;
 }
 function gmmsjDetail(html){
- const body=decodeEntities(String(html||'').replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' '));
- const status=/(?:浏览量|收藏量)[\\s\\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\\s\\S]{0,100}?出售中/.test(body)?'listed':'unverified';
- const m=body.match(/(?:商品类别|角色性别|保障类型)[\\s\\S]{0,900}?[¥￥]\\s*([1-9]\\d{0,6}(?:\\.\\d{1,2})?)/);
+ const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const status=/(?:浏览量|收藏量)[\s\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
+ const m=body.match(/(?:商品类别|角色性别|保障类型)[\s\S]{0,900}?[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/);
  return {status,price:m?Number(m[1]):null,price_evidence:m?'gmmsj_detail_visible_price':'unknown'};
 }
 function extractDetailPrice(html){
@@ -106,7 +106,7 @@ function searchPlans(game,filters){
  : game.name==='王者荣耀'
  ? ['账号','成品号','皮肤','典藏','传说','英雄','苹果QQ','安卓QQ','可二次实名']
  : [...new Set(['账号','成品号','角色','装备',...game.terms,...game.aliases.slice(1)])];
- const terms=[game.name+' 账号 出售',game.name+' 商品编号',game.name+' 账号 价格',game.name+' '+(server||'成品号'),...categories.map(t=>game.name+' '+t),game.name+' '+Math.round(budget*0.8)+'元',game.name+' '+Math.round(budget*1.1)+'元'];
+ const terms=[game.name+' 账号 出售',game.name+' 商品编号',game.name+' 账号 价格',game.name+' '+(server||'成品号'),...categories.slice(0,3).map(t=>game.name+' '+t)];
  return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>[...terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})),...(d.host==='gmmsj.com'&&game.name==='冒险岛'?[{d,q:'site:gmmsj.com/dy/5_zh/detail_ 冒险岛 账号 ¥',offset:0,variant:999}]:[])]);
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
