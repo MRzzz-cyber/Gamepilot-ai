@@ -132,3 +132,14 @@
 /* Runtime statuses are evidence-derived, not decorative checkmarks. */
 .executionStep.error .executionNode{background:#55392b;color:#ffd6a2;border-color:#96653c}
 .executionStep.error .executionStepBody strong{color:#f5cba4}
+
+/* Interview Harness: architecture and evidence-driven execution status */
+.harnessExplorerBuild{display:inline-flex;margin-top:9px;font-size:9px;letter-spacing:.65px;color:#78ccb9;background:#173d38;border:1px solid #29665d;border-radius:5px;padding:5px 7px;font-weight:750}
+.executionState.warning{background:#393025;border-color:#957047;color:#f6ca90}
+.executionStep.warning .executionNode{background:#583c2a;border-color:#a87842;color:#ffdb9e}
+.executionStep.warning .executionStepBody strong{color:#efcea7}
+.harnessRuntimeSummary.noMatch{border-color:#80613f;background:linear-gradient(125deg,#352c28,#1a2c36)}
+.harnessRuntimeSummary.noMatch strong{color:#f6d0a1}
+.harnessRuntimeSummary.matchFound{border-color:#33755f;background:linear-gradient(125deg,#163d33,#172e39)}
+@media(min-width:1450px){.resultsLayout{grid-template-columns:206px minmax(0,1fr) 310px}.harnessArchitectureLayer{min-height:93px}.harnessLayerContent{padding:12px 13px}}
+@media(min-width:1251px) and (max-width:1449px){.resultsLayout{grid-template-columns:195px minmax(0,1fr) 282px}}
