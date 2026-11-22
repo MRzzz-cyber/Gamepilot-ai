@@ -238,15 +238,35 @@ function evaluateCandidate(x,req){
  return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
 }
 function searchPlans(game,filters){
- // Generic query plans: the game is a parameter, not a per-title code path.
- // Queries discover product URLs; all hard filters are applied AFTER discovery.
+ // Parameterized by game, never manually configure one game's inventory.
  const names=[...new Set([game.name,...(game.aliases||[])])].filter(x=>x&&x.length>=2);
- const terms=[];
- for(const name of names.slice(0,3)){
-  terms.push(name+' 账号 出售',name+' 成品号',name+' 账号 价格',name+' 商品详情');
-  if(/^[a-z0-9 ._-]+$/i.test(name))terms.push(name+' account for sale');
- }
- return SEARCH_DOMAINS.flatMap(d=>[...new Set(terms)].slice(0,6).map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
+ return SEARCH_DOMAINS.flatMap(d=>{
+  const name=names[0];
+  const other=names[1]||name;
+  const searches=d.host==='5173.com'?[
+   ['shop.5173.com',name+' 账号'],
+   ['s.5173.com',name+' 商品'],
+   ['5173.com',name+' 账号 价格'],
+   ['shop.5173.com',other+' 账号'],
+   ['s.5173.com',other+' 商品'],
+   ['5173.com',name+' 商品详情']
+  ]:d.host==='gmmsj.com'?[
+   ['gmmsj.com/h5/goods/detail',name+' 账号'],
+   ['gmmsj.com/dy',name+' 账号'],
+   ['gmmsj.com',name+' 账号 价格'],
+   ['gmmsj.com/h5/goods/detail',other+' 商品详情'],
+   ['gmmsj.com/dy',other+' 账号'],
+   ['gmmsj.com',name+' 商品详情']
+  ]:[
+   ['pzds.com',name+' 账号 出售'],
+   ['pzds.com',name+' 成品号'],
+   ['pzds.com',name+' 账号 价格'],
+   ['pzds.com',other+' 账号'],
+   ['pzds.com',name+' 商品详情'],
+   ['pzds.com',other+' 成品号']
+  ];
+  return searches.map(([site,term],i)=>({d,q:'site:'+site+' '+term,offset:0,variant:i}));
+ });
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){
