@@ -67,11 +67,21 @@ function searchPlans(game,filters){
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='5173.com'||domain==='gmmsj.com')return /\/(?:goods?|product|detail|item|sale|buy)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
 function extractPrice(s){
- const t=String(s||'').replace(/,/g,'');
- // Require explicit currency or price labels; never treat game stats, IDs or levels as prices.
- const patterns=[/(?:售价|现价|到手价|商品价格|标价|卖价|参考价)\\s*[:：]?\\s*[¥￥]?\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*(?:元)?/gi,/[¥￥]\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)/g,/([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*元(?:\\s|$|[，。；])/g];
- for(const re of patterns){const matches=[...t.matchAll(re)].map(m=>Number(m[1])).filter(v=>Number.isFinite(v)&&v>=1&&v<=1000000);if(matches.length)return matches[0]}
+ const t=String(s||'').replace(/,/g,'').replace(/\\s+/g,' ');
+ // Only explicit listing prices; never infer prices from levels, IDs, views or generic platform copy.
+ const patterns=[
+  /(?:售价|现价|到手价|商品价格|标价|卖价|参考价|价格)\\s*[:：]?\\s*[¥￥]?\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*(?:元)?/gi,
+  /[¥￥]\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)/g,
+  /([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*元(?:\\s|$|[，。；])/g
+ ];
+ for(const re of patterns){for(const m of t.matchAll(re)){const v=Number(m[1]);if(Number.isFinite(v)&&v>=1&&v<=1000000)return v}}
  return null;
+}
+function isGenericPage(title,description,game){
+ const t=String(title||'').trim(),d=String(description||'');
+ const generic=/(?:交易平台|交易网|账号交易平台|游戏账号交易|游戏交易平台|账号买卖平台|首页|商品列表|账号交易网)/;
+ const product=/(?:商品编号|账号编号|商品ID|编号[:：]?\\s*[A-Z0-9]{5,}|等级[:：]?\\s*\\d{2,}|职业[:：]|战力[:：]|皮肤(?:数量)?[:：]?\\s*\\d+)/i;
+ return (generic.test(t)&&!product.test(t+' '+d))||(!gameMatches(t+' '+d,game));
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
@@ -89,7 +99,7 @@ async function discover(query,filters,env){
     if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href))continue;
-    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(!gameMatches(full,game))continue;
+    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;if(isGenericPage(title,description,game))continue;
     const foundServer=game.server?(full.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const price=extractPrice(full),skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
