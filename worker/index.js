@@ -580,24 +580,32 @@ function pzdsCategoryCards(html,game){
  return [...leads.values()];
 }
 async function pzdsCategoryLeads(game,filters,htmlOverride=null){
- if(game?.name!=='王者荣耀')return {items:[],diagnostic:'game_not_supported',priced:0};
- const url='https://www.pzds.com/goodsList/7/6';
+ if(game?.name!=='王者荣耀')return {items:[],diagnostic:'game_not_supported',priced:0,pages:0};
+ const base='https://www.pzds.com/goodsList/7/6';
  try{
-  let html;
-  if(htmlOverride!=null)html=String(htmlOverride);
-  else{
-   const res=await fetch(url,{signal:AbortSignal.timeout(9000),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
-   if(!res.ok)return {items:[],diagnostic:'http_'+res.status,priced:0};
-   html=await res.text();
+  // Fetch public SSR page 1 and two bounded pagination pages; no third-party search quota.
+  const sources=htmlOverride!=null?[{url:base,html:String(htmlOverride)}]:
+    await Promise.all([base,base+'?currentPage=2',base+'?currentPage=3'].map(async url=>{
+     try{
+      const res=await fetch(url,{signal:AbortSignal.timeout(9000),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
+      return {url,html:res.ok?(await res.text()).slice(0,850000):null,status:res.status}
+     }catch(e){return {url,html:null,status:String(e?.name||'network_error')}}
+    }));
+  const combined=new Map(),diagnostics=[];let valid=0;
+  for(const source of sources){
+   const html=source.html;
+   if(!html){diagnostics.push(source.status||'fetch_failed');continue}
+   if(/(?:人机验证|Access Denied|Just a moment|captcha)/i.test(html.slice(0,5000))){diagnostics.push('source_challenge');continue}
+   const title=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'');
+   if(!title.includes('王者荣耀')&&htmlOverride==null){diagnostics.push('unexpected_category');continue}
+   valid++;
+   for(const item of pzdsCategoryCards(html,game))if(!combined.has(item.url))combined.set(item.url,item);
   }
-  if(/(?:人机验证|Access Denied|Just a moment|captcha)/i.test(html.slice(0,5000)))return {items:[],diagnostic:'source_challenge',priced:0};
-  // Validate category identity rather than trusting a game ID that may change.
-  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'');
-  if(!pageTitle.includes('王者荣耀')&&htmlOverride==null)return {items:[],diagnostic:'unexpected_category',priced:0};
-  const items=pzdsCategoryCards(html,game);
-  return {items,diagnostic:items.length?'ok':'no_product_cards',priced:items.filter(x=>x.price!=null).length};
- }catch(e){return {items:[],diagnostic:String(e?.name||'fetch_failed').slice(0,50),priced:0}}
+  const items=[...combined.values()].slice(0,45);
+  return {items,diagnostic:items.length?'ok':diagnostics[0]||'no_product_cards',priced:items.filter(x=>x.price!=null).length,pages:valid,page_errors:diagnostics};
+ }catch(e){return {items:[],diagnostic:String(e?.name||'fetch_failed').slice(0,50),priced:0,pages:0}}
 }
+
 async function discover(query,filters,env,options={}){
  // Public category feeds can still discover leads when Brave is missing or rate-limited.
  const trace=[],results=new Map(),categoryPages=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
@@ -605,7 +613,7 @@ async function discover(query,filters,env,options={}){
  // Official first-party listing feeds recover priced products even when Brave indexing fails.
  const pzds=await pzdsCategoryLeads(game,filters);
  for(const item of pzds.items)results.set(item.url,item);
- trace.push({tool:'pzds_category',result:{status:pzds.diagnostic,detail_pages:pzds.items.length,priced:pzds.priced}});
+ trace.push({tool:'pzds_category',result:{status:pzds.diagnostic,detail_pages:pzds.items.length,priced:pzds.priced,pages:pzds.pages||0,page_errors:pzds.page_errors||[]}});
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);
  for(const item of feed.items)results.set(item.url,item);
