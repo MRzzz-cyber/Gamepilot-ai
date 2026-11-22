@@ -11,7 +11,7 @@ function structuredOffers(html){
 }
 function gmmsjDetail(html){
  const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
- const status=/(?:浏览量|收藏量)[\s\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
+ const status=/(?:浏览量|收藏量)[\s\S]{0,100}?(?:已出售|已售出|已下架)/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
  const productContext=/(?:商品详情|(?:商品编号|账号编号|编号)\s*[:：]?\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
  if(!productContext)return {status,price:null,price_evidence:'unknown'};
  const head=body.split(/(?:猜你喜欢|相似推荐|商品留言|交易流程)/)[0].slice(0,6000);
@@ -182,7 +182,7 @@ async function enrichCandidates(candidates,env,trace=[]){
   const detailVerified=v.price!=null&&v.status!=='sold'&&v.status!=='stale'&&!wrongGame;
   const priceConflict=detailVerified&&x.price!=null&&Math.abs(v.price-x.price)>0.01;
   const price=wrongGame||gameUnconfirmed||v.status==='stale'||v.status==='sold'?null:detailVerified?v.price:x.price;
-  return {...x,server:v.detail_attributes?.server||x.server,skins:v.detail_attributes?.skins??x.skins,heroes:v.detail_attributes?.heroes??x.heroes,realname:v.detail_attributes?.realname??x.realname,detail_attributes:v.detail_attributes||null,detail_summary:v.detail_attributes?.summary||null,detail_listing_id:v.detail_attributes?.listing_id||null,title:(v.detail_attributes?.title&&(/详情待核验|商品详情|源站商品详情/.test(x.title)||x.title.length<12))?v.detail_attributes.title:x.title,status:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,detail_http_status:v.http_status||null,detail_fetch_error:v.fetch_error||null,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
+  return {...x,server:v.detail_attributes?.server||x.server,skins:v.detail_attributes?.skins??x.skins,heroes:v.detail_attributes?.heroes??x.heroes,realname:v.detail_attributes?.realname??x.realname,detail_attributes:v.detail_attributes||null,detail_summary:v.detail_attributes?.summary||null,detail_listing_id:v.detail_attributes?.listing_id||null,title:(v.detail_attributes?.title&&(/详情待核验|商品详情|源站商品详情/.test(x.title)||x.title.length<12))?v.detail_attributes.title:x.title,status:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,detail_http_status:v.http_status||null,detail_fetch_error:v.fetch_error||null,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':gameUnconfirmed?'game_unconfirmed':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':x.price_evidence==='gmmsj_category_visible_price'?'G买卖商品列表标价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
@@ -399,39 +399,54 @@ function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^;
 // Extract a price only from a short source HTML card enclosing this exact product ID.
 // This prevents coupons and prices of neighboring cards from becoming fabricated quotes.
 function gmmsjCardEvidence(html,linkIndex,productId){
- const source=String(html||''),start=Math.max(0,linkIndex-6000);
- const opens=[...source.slice(start,linkIndex).matchAll(/<(li|article|section|div)\b[^>]*>/gi)].reverse().slice(0,48);
+ const source=String(html||''),start=Math.max(0,linkIndex-9000);
+ // A product can be wrapped by <a>, <li>, <div> or a table row. The previous
+ // parser omitted <a>, which is a common wrapper for a clickable price card.
+ const opens=[...source.slice(start,linkIndex).matchAll(/<(a|li|article|section|div|dl|tr)\b[^>]*>/gi)].reverse().slice(0,120);
  for(const opening of opens){
   const tag=opening[1].toLowerCase(),offset=start+opening.index;
-  if(linkIndex-offset>4500)continue;
+  if(linkIndex-offset>7200)continue;
   const tags=new RegExp('<(/?)'+tag+'\\b[^>]*>','gi');
   let depth=0,end=-1;
-  for(const token of source.slice(offset,offset+9000).matchAll(tags)){
+  for(const token of source.slice(offset,offset+12500).matchAll(tags)){
    depth+=token[1]?-1:1;
    if(depth===0){end=offset+token.index+token[0].length;break}
   }
-  if(end<=linkIndex||end-offset>7000)continue;
+  if(end<=linkIndex||end-offset>9500)continue;
   const card=source.slice(offset,end);
+  // Require exactly ONE product identity within this card (duplicates of its own
+  // URL are acceptable). Do not confuse the next product's price with this one.
   const ids=[...card.matchAll(/detail_([a-z0-9]+)\.shtml/gi)].map(m=>m[1].toLowerCase());
   if(!ids.length||new Set(ids).size!==1||ids[0]!==String(productId).toLowerCase())continue;
   const plain=decodeEntities(card.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ')).trim();
-  if(plain.length>1800)continue;
-  const labeled=[...plain.matchAll(/(?:商品售价|当前售价|出售价格|售价|现价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/gi)].map(m=>Number(m[1])).filter(v=>v>=10&&v<=1000000);
-  const prices=[...plain.matchAll(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/g)].filter(m=>!/(?:优惠券|可领|领券|返券|返现|抵扣|满减|折扣|运费|服务费|原价|划线价)\s*[:：]?\s*$/.test(plain.slice(Math.max(0,m.index-32),m.index))).map(m=>Number(m[1])).filter(v=>v>=10&&v<=1000000);
+  if(plain.length>2500)continue;
+  const safeAmount=value=>{const n=Number(String(value).replace(/,/g,''));return n>=10&&n<=1000000?n:null};
+  const labeled=[...plain.matchAll(/(?:商品售价|当前售价|出售价格|售价|现价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9][\d,]{0,9}(?:\.\d{1,2})?)/gi)].map(m=>safeAmount(m[1])).filter(x=>x!=null);
+  const prices=[...plain.matchAll(/[¥￥]\s*([1-9][\d,]{0,9}(?:\.\d{1,2})?)/g)].filter(m=>{
+   const before=plain.slice(Math.max(0,m.index-36),m.index);
+   return !/(?:优惠券|可领|领券|返券|返现|抵扣|满减|折扣|运费|服务费|原价|划线价)\s*[:：]?\s*$/.test(before);
+  }).map(m=>safeAmount(m[1])).filter(x=>x!=null);
   const unique=[...new Set(labeled.length?labeled:prices)];
   if(unique.length!==1)continue;
-  const title=plain.match(/(?:账号|帐号)\s*(\[[^\]]{2,45}\][\s\S]{5,145}?)(?=\s*(?:可用优惠券|商品类型|游戏区服|[¥￥]|查看详情|立即购买))/u)?.[1]?.trim().slice(0,125)||null;
-  return {price:unique[0],title};
+  // Never extract prices from a card marked sold.
+  if(/(?:已出售|已售出|已下架|已卖出|已售罄)/.test(plain))continue;
+  const title=plain.match(/(?:账号|帐号)\s*([\[【][^\]】]{2,45}[\]】][\s\S]{4,145}?)(?=\s*(?:可用优惠券|商品类型|游戏区服|[¥￥]|查看详情|立即购买))/u)?.[1]?.trim().slice(0,125)||null;
+  const server=plain.match(/(?:冒险岛[-－])?((?:风|光|云|水|火|雷)之大陆（?(?:电信|网通)）?\s*[-－]\s*[\p{Script=Han}A-Za-z0-9]{2,20})/u)?.[1]||null;
+  return {price:unique[0],title,server};
  }
- return {price:null,title:null};
+ return {price:null,title:null,server:null};
 }
-async function gmmsjCategoryLeads(game,filters){
+async function gmmsjCategoryLeads(game,filters,renderedHtml=null){
  if(game?.name!=='冒险岛'||(filters.version&&filters.version!=='国服'))return {items:[],diagnostic:'edition_not_supported'};
  const source='https://www.gmmsj.com/dy/5_zh.shtml?sourceType=4&special=1';
  try{
-  const response=await fetch(source,{signal:AbortSignal.timeout(8500),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
-  if(!response.ok)return {items:[],diagnostic:'http_'+response.status};
-  const html=(await response.text()).slice(0,1100000);
+  let html;
+  if(renderedHtml!=null){html=String(renderedHtml).slice(0,1100000)}
+  else {
+   const response=await fetch(source,{signal:AbortSignal.timeout(8500),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0)'}});
+   if(!response.ok)return {items:[],diagnostic:'http_'+response.status};
+   html=(await response.text()).slice(0,1100000);
+  }
   const links=[...html.matchAll(/(?:href\s*=\s*["'])([^"']*(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml[^"']*)["']/gi)];
   // Some marketplace cards expose product URLs in data attributes or inline navigation, not href.
   const fallback=[...html.matchAll(/(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml/gi)];
@@ -451,10 +466,10 @@ async function gmmsjCategoryLeads(game,filters){
    const listingTitle=titleFromLink||card.title;
    const title=listingTitle?'冒险岛 '+listingTitle:'冒险岛商品 '+productId.slice(-10)+'（详情待核验）';
    const nearby=listingTitle?'商品卡片文字：'+listingTitle:'来自G买卖冒险岛分类页，账号属性等待详情验证';
-   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:nearby+' 【冒险岛国服分类页】',server:null,price:card.price,price_evidence:card.price!=null?'gmmsj_category_visible_price':'unknown',price_source_label:card.price!=null?'G买卖商品列表标价（非实时）':'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:card.price!=null?'官方分类页商品卡片可见标价，库存与详情价格仍需核验':'官方冒险岛国服分类页商品链接，详情信息尚未核验',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
+   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:nearby+' 【冒险岛国服分类页】',server:card.server||null,price:card.price,price_evidence:card.price!=null?'gmmsj_category_visible_price':'unknown',price_source_label:card.price!=null?'G买卖商品列表标价（非实时）':'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:card.price!=null?'官方分类页商品卡片可见标价，库存与详情价格仍需核验':'官方冒险岛国服分类页商品链接，详情信息尚未核验',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
    if(unique.size>=35)break;
   }
-  return {items:[...unique.values()],diagnostic:unique.size?'ok':'no_product_links_in_html',links_found:links.length};
+  return {items:[...unique.values()],diagnostic:unique.size?'ok':'no_product_links_in_html',links_found:links.length,priced:[...unique.values()].filter(x=>x.price!=null).length};
  }catch(e){return {items:[],diagnostic:'fetch_failed'};}
 }
 // Browser-assisted discovery from search-indexed CATEGORY pages, not random SEO pages.
@@ -515,7 +530,34 @@ async function discover(query,filters,env,options={}){
  const trace=[],results=new Map(),categoryPages=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'resolve_game',result:{error:'missing_game_name'}}],reason:'missing_game_name',message:'请提供具体游戏名称，例如「找鸣潮账号」'};
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
- const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
+ const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);
+ for(const item of feed.items)results.set(item.url,item);
+ trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0,priced:feed.priced||0}});
+ // G买卖 renders prices on the listing cards. A usable HTML page may expose URLs
+ // but omit card values; do one browser-rendered category fetch BEFORE 15 detail
+ // checks, rather than spending separate browser sessions on blocked details.
+ if(!options.retry&&game.name==='冒险岛'&&feed.items.length>0&&(feed.priced||0)===0){
+  const started=Date.now();
+  if(typeof env?.BROWSER?.quickAction!=='function'){
+   trace.push({tool:'gmmsj_category_price_render',result:{status:'browser_binding_missing',priced:0},duration_ms:0});
+  }else{
+   try{
+    const response=await env.BROWSER.quickAction('content',{url:'https://www.gmmsj.com/dy/5_zh.shtml?sourceType=4&special=1',gotoOptions:{waitUntil:'networkidle2'}});
+    if(!response?.ok)throw Error('browser_http_'+(response?.status||'unknown'));
+    const html=(await response.text()).slice(0,1100000);
+    if(/(?:人机验证|Access Denied|Just a moment|captcha)/i.test(html.slice(0,14000)))throw Error('site_challenge');
+    const rendered=await gmmsjCategoryLeads(game,filters,html);
+    let priced=0,added=0;
+    for(const item of rendered.items){
+     const previous=results.get(item.url);
+     if(previous){
+      if(item.price!=null&&previous.price==null){results.set(item.url,{...previous,...item});priced++}
+     }else{results.set(item.url,item);added++;if(item.price!=null)priced++}
+    }
+    trace.push({tool:'gmmsj_category_price_render',result:{status:rendered.diagnostic,priced,added,found:rendered.items.length},duration_ms:Date.now()-started});
+   }catch(e){trace.push({tool:'gmmsj_category_price_render',result:{status:String(e?.message||'render_failed').slice(0,75),priced:0},duration_ms:Date.now()-started})}
+  }
+ }
  const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
  if(!env.BRAVE_SEARCH_API_KEY)trace.push({tool:'search_configuration',result:{error:'BRAVE_SEARCH_API_KEY_missing',message:'搜索引擎未配置，无法检索国际服等非直连商品'}});
  const plans=[];const startIndex=options.retry?2:0,endIndex=options.retry?6:2;for(let i=startIndex;i<endIndex;i++)for(const host of SEARCH_DOMAINS){const p=allPlans.filter(x=>x.d.host===host.host)[i];if(p)plans.push(p)}
