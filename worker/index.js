@@ -16,7 +16,9 @@ async function verifyListing(raw){
  }catch{return {status:'unverified',message:'页面访问失败，不能确认在售'}}
 }
 
-const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号'}];
+const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号',query:'site:pzds.com/goodsDetails/ 王者荣耀 价格'},{host:'pxb7.com',platform:'螃蟹账号',query:'site:pxb7.com/seo/buy/ 王者荣耀 账号 价格'}];
+function isProductPage(u,domain){if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+\/\d+\/?$/i.test(u.pathname);if(domain==='pxb7.com')return /^\/seo\/buy\/\d+\/\d+\/?$/i.test(u.pathname);return false}
+function extractPrice(s){const matches=[...s.matchAll(/(?:[¥￥]\s*|(?:售价|价格|卖价|现价|到手价)\s*[:：]?\s*)([1-9]\d{1,5})(?:\.\d{1,2})?\s*(?:元)?/g)].map(x=>Number(x[1]));return matches.length?matches[0]:null}
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],reason:'missing_search_key',message:'尚未配置 BRAVE_SEARCH_API_KEY；无法自动发现真实候选'};
@@ -24,13 +26,13 @@ async function discover(query,filters,env){
  for(const d of SEARCH_DOMAINS){
   const start=Date.now();
   try{
-   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q','site:'+d.host+' '+terms);u.searchParams.set('count','8');
+   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',d.query+' '+terms);u.searchParams.set('count','8');
    const r=await fetch(u,{headers:{'Accept':'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8000)});
    if(!r.ok){trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{http_status:r.status},duration_ms:Date.now()-start});continue}
    const data=await r.json();let count=0;
    for(const item of data.web?.results||[]){
     let link;try{link=new URL(item.url)}catch{continue}
-    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;
+    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host))||!isProductPage(link,d.host))continue;
     const title=cleanText(item.title),snippet=cleanText(item.description);
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop()||'unknown';
     if(KNOWN_SOLD.has(id))continue;
@@ -38,15 +40,16 @@ async function discover(query,filters,env){
     const combined=title+' '+snippet;
     const foundServer=combined.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null;
     if(filters.server!=='all'&&foundServer&&foundServer!==filters.server)continue;
-    const priceMatch=combined.match(/[¥￥]\s*([0-9]{2,6})/);
-    const price=priceMatch?Number(priceMatch[1]):null;
+    const price=extractPrice(combined);
+    // Without a price, there is no meaningful comparison. Keep only priced detail candidates.
+    if(price===null)continue;
     if(price!=null&&Number(filters.max_price)>0&&price>Number(filters.max_price))continue;
     candidates.push({id:d.host+':'+id,platform:d.platform,url:link.href,title,description:snippet,server:foundServer,price,source:'搜索索引 · 未核验',status:'unverified',discovered_at:new Date().toISOString(),verification:'搜索引擎缓存，不代表在售',kind:'discovered',heroes:null,skins:null,rare:'未核验',realname:null,time:'发现时间：'+new Date().toLocaleDateString('zh-CN')});count++;
    }
    trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{candidates:count},duration_ms:Date.now()-start});
   }catch(e){trace.push({tool:'discover_'+d.host,mode:'Brave Search API',result:{error:'请求失败或超时'},duration_ms:Date.now()-start})}
  }
- return {candidates:candidates.slice(0,12),trace,reason:candidates.length?'found':'no_candidates',message:'搜索索引候选不代表在售；必须通过可信库存接口核验后才能进入可购买比价'};
+ return {candidates:candidates.slice(0,12),trace,reason:candidates.length?'found':'no_priced_details',message:candidates.length?'已筛选有索引价格的商品详情页；价格与在售状态仍需核验':'未发现同时具有商品详情链接和明确索引价格的候选。未展示首页、教程或无价页面。'};
 }
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
