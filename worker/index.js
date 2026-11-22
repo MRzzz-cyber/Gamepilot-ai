@@ -71,7 +71,7 @@ async function browserRenderListing(raw,env){
   const html=(await response.text()).slice(0,500000);
   if(/(?:验证码|人机验证|请登录|访问被拒绝|Access Denied|Just a moment|verify you are human|captcha)/i.test(html.slice(0,15000)))
    return {ok:false,reason:'site_challenge_or_login',duration_ms:Date.now()-start};
-  if(html.length<120)return {ok:false,reason:'rendered_html_empty',duration_ms:Date.now()-start};
+  if(html.length<80)return {ok:false,reason:'rendered_html_empty',duration_ms:Date.now()-start};
   return {ok:true,html,duration_ms:Date.now()-start};
  }catch(e){return {ok:false,reason:'browser_render_failed',error_type:String(e?.name||'unknown').slice(0,50),duration_ms:Date.now()-start}}
 }
