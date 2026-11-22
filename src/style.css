@@ -80,11 +80,6 @@
 .harnessExplorerSubtitle{font-size:11px;color:#91b3bd;line-height:1.55}
 .harnessArchitectureRibbon{display:flex;gap:4px;flex-wrap:wrap;margin-top:13px}
 .harnessArchitectureRibbon span{font-size:9px;color:#9fddd4;border:1px solid #29564e;border-radius:5px;padding:4px 5px;background:#12332f}
-.harnessViewTabs{display:grid;grid-template-columns:1fr 1fr;padding:4px;gap:4px;background:#112530;border:1px solid #284352;border-radius:10px;margin:0 0 22px}
-.harnessViewTabs button{background:transparent;border:0;border-radius:7px;color:#8bacb7;display:flex;align-items:center;justify-content:center;gap:6px;font-weight:700;font-size:11px;padding:10px 5px;cursor:pointer;transition:background .15s,color .15s}
-.harnessViewTabs button.active{background:#244e4d;color:#b5ffec;box-shadow:0 1px 6px #0003}
-.harnessViewTabs button:focus-visible,.harnessInterviewContent button:focus-visible{outline:2px solid #65efcd;outline-offset:2px}
-.runtimeDot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#69eac2}
 .harnessArchitectureCaption,.harnessOutputLabel{display:flex;justify-content:space-between;gap:8px;align-items:center;color:#6c9aa5;font-size:9px;font-weight:800;letter-spacing:1.1px;margin-bottom:13px}
 .harnessArchitectureCaption b{color:#7ecabd;font-size:9px;letter-spacing:.6px}
 .harnessArchitectureFlow{display:flex;flex-direction:column;gap:0}
@@ -108,13 +103,6 @@
 .outputBullet.ready{background:#55dfb3}.outputBullet.pending{background:#efbc75}.outputBullet.excluded{background:#7999ab}
 .harnessDesignPrinciple{display:flex;gap:8px;align-items:flex-start;margin-top:15px;padding:11px;border-radius:10px;background:#123832;border:1px solid #28695d;color:#afe7da;font-size:10px;line-height:1.7}
 .harnessDesignPrinciple svg{flex-shrink:0;margin-top:2px}
-.harnessInterviewDetails{border:1px solid #344d59;border-radius:11px;margin-top:13px;background:#162b37}
-.harnessInterviewDetails summary{list-style:none;cursor:pointer;padding:12px;display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:800;color:#e0edef}
-.harnessInterviewDetails summary::-webkit-details-marker{display:none}
-.harnessInterviewDetails[open] summary svg{transform:rotate(180deg)}
-.harnessInterviewContent{border-top:1px solid #2b4653;padding:12px}
-.harnessInterviewContent p{margin:0;font-size:11px;line-height:1.85;color:#b6d0d8}
-.harnessInterviewContent button{width:100%;background:#22594f;border:1px solid #347b6d;border-radius:8px;color:#bbffec;padding:10px 8px;font-size:11px;font-weight:800;cursor:pointer;margin-top:11px}
 .harnessArchitectureDisclaimer{font-size:9px;line-height:1.7;color:#77939f;margin:12px 0 0}
 .harnessRuntimeHeader{margin:4px 0 15px}
 .harnessRuntimeSummary{display:flex;flex-direction:column;gap:6px;border:1px solid #294756;border-radius:10px;padding:11px;margin-bottom:15px;background:#142b38}
@@ -134,7 +122,6 @@
 .executionStep.error .executionStepBody strong{color:#f5cba4}
 
 /* Interview Harness: architecture and evidence-driven execution status */
-.harnessExplorerBuild{display:inline-flex;margin-top:9px;font-size:9px;letter-spacing:.65px;color:#78ccb9;background:#173d38;border:1px solid #29665d;border-radius:5px;padding:5px 7px;font-weight:750}
 .executionState.warning{background:#393025;border-color:#957047;color:#f6ca90}
 .executionStep.warning .executionNode{background:#583c2a;border-color:#a87842;color:#ffdb9e}
 .executionStep.warning .executionStepBody strong{color:#efcea7}
@@ -146,3 +133,22 @@
 
 .harnessGateBreakdown{display:flex;flex-wrap:wrap;gap:6px;margin:11px 0}
 .harnessGateBreakdown span{font-size:10px;line-height:1.45;color:#b4d0d8;border:1px solid #35505b;background:#142b36;border-radius:6px;padding:5px 7px}
+
+/* Agent execution above the collapsible system architecture. */
+.harnessRuntimeHeader{margin:2px 0 14px}
+.harnessArchitectureDetails{border:1px solid #345460;border-radius:12px;margin:19px 0 0;background:linear-gradient(180deg,#122b37,#10232d);overflow:hidden}
+.harnessArchitectureToggle{display:flex;align-items:center;justify-content:space-between;gap:10px;list-style:none;cursor:pointer;color:#e6f6f7;font-weight:800;font-size:12px;padding:14px 13px}
+.harnessArchitectureToggle::-webkit-details-marker{display:none}
+.harnessArchitectureToggle>span{display:flex;align-items:center;gap:8px}
+.harnessArchitectureToggle>span svg{color:#62decb}
+.harnessArchitectureToggle>svg{transition:transform .2s;color:#85aeb8}
+.harnessArchitectureDetails[open] .harnessArchitectureToggle>svg{transform:rotate(180deg)}
+.harnessArchitectureToggle:focus-visible{outline:2px solid #65efcd;outline-offset:-2px}
+.harnessArchitectureBody{padding:0 12px 15px;border-top:1px solid #284450}
+.harnessArchitectureIntro{color:#87aab5;font-size:10px;line-height:1.55;margin:13px 0 14px}
+.harnessArchitectureBody .harnessArchitectureCaption{margin-top:8px}
+.harnessExplorerTop{padding-bottom:12px}
+.harnessArchitectureDetails .harnessArchitectureLayer{min-height:90px}
+@media(min-width:1251px){.harnessExplorer .executionFlow{display:flex;flex-direction:column;gap:0}.harnessExplorer .executionStep:not(:last-child):before{display:block}}
+@media(max-width:1250px){.harnessExplorer .executionFlow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.harnessExplorer .executionStep{min-height:55px}.harnessExplorer .executionStep:before{display:none}}
+@media(max-width:800px){.harnessExplorer .executionFlow{grid-template-columns:repeat(2,minmax(0,1fr))}.harnessArchitectureBody{padding:0 11px 14px}}
