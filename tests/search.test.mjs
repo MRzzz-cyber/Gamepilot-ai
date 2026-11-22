@@ -254,3 +254,13 @@ test('search response retains 苹果区 intent even when the old sidebar sent se
  assert.equal(result.data.filters.server,'苹果区');
  assert.ok(result.data.harness.skill_flow.steps.some(x=>x.id==='requirements-parsing'));
 });
+
+test('G买卖 category cards preserve distinct IDs rather than copying adjacent product descriptions',async()=>{
+ const html='<html><body><a href="/dy/5_zh/detail_1000000000001.shtml">查看详情</a><a href="/dy/5_zh/detail_1000000000002.shtml">查看详情</a></body></html>';
+ const adapter=new Function('fetch','URL','AbortSignal',source.replace('export default {','const __worker = {')+';return {gmmsjCategoryLeads}')(
+  async()=>new Response(html,{status:200,headers:{'Content-Type':'text/html'}}),URL,AbortSignal);
+ const result=await adapter.gmmsjCategoryLeads({name:'冒险岛'},{version:null});
+ assert.equal(result.items.length,2);
+ assert.ok(result.items[0].title!==result.items[1].title);
+ assert.ok(result.items.every(x=>x.price===null&&x.title.includes('详情待核验')));
+});
