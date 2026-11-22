@@ -45,7 +45,7 @@ async function verifyListing(raw){
  const html=(await r.text()).slice(0,500000);
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
  const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;
- const detail=extractDetailPrice(html);const visible=visibleDetailPrice(html);
+ const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格)/.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
  // Search only the page title and explicit structured availability for strong sold evidence.
  const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
  const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
@@ -53,12 +53,17 @@ async function verifyListing(raw){
  }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates){
- const top=candidates.slice(0,36);
- const checks=[];for(let i=0;i<top.length;i+=9){checks.push(...await Promise.all(top.slice(i,i+9).map(x=>verifyListing(x.url))));}
- return candidates.map((x,i)=>{
-  if(i>=checks.length)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
-  const v=checks[i];const price=v.price!=null?v.price:x.price;
-  return {...x,status:v.status,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,price_source_label:v.price!=null?'商品详情结构化提取价（仍需核验）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
+ // Verify unpriced leads first: these are the listings where a detail fetch can create a new price.
+ // Round-robin across platforms so a single site's results cannot exhaust verification capacity.
+ const byPlatform=new Map();for(const x of candidates){if(!byPlatform.has(x.platform))byPlatform.set(x.platform,[]);byPlatform.get(x.platform).push(x)}
+ for(const xs of byPlatform.values())xs.sort((a,b)=>Number(a.price!=null)-Number(b.price!=null));
+ const queue=[];while(queue.length<36){let added=false;for(const xs of byPlatform.values()){if(xs.length&&queue.length<36){queue.push(xs.shift());added=true}}if(!added)break}
+ const checks=new Map();for(let i=0;i<queue.length;i+=6){const batch=queue.slice(i,i+6);const outcomes=await Promise.all(batch.map(x=>verifyListing(x.url)));batch.forEach((x,j)=>checks.set(x.url,outcomes[j]))}
+ return candidates.map(x=>{
+  const v=checks.get(x.url);
+  if(!v)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
+  const price=v.price!=null?v.price:x.price;
+  return {...x,status:v.status,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,price_source_label:v.price!=null?'商品详情提取价（非实时）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
