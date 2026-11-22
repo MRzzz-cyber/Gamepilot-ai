@@ -45,7 +45,7 @@ jobs:
             const leads=await parsed.gmmsjCategoryLeads({name:'冒险岛'},{version:'国服'},list);
             const selected=leads.items.find(x=>x.url.includes(target));
             const detail=await parsed.verifyListing('https://www.gmmsj.com/dy/5_zh/detail_'+target+'.shtml');
-            console.log('CARD_PRICE_CONTEXT '+JSON.stringify({priceOccurrences:[...card.matchAll(/1700(?:\\.00)?/g)].slice(0,12).map(m=>sample(card,'1700',180,250)),priceClassExamples:[...card.matchAll(/<[^>]{0,220}(?:price|money|amount)[^>]{0,140}>/gi)].slice(0,20).map(m=>m[0].slice(0,280)),summaryText:card.replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').slice(0,1000)}));
+            console.log('CARD_PRICE_CONTEXT '+JSON.stringify({priceOccurrences:[...card.matchAll(/1700[.]00/g)].slice(0,9).map(m=>card.slice(Math.max(0,m.index-130),m.index+220).replace(/\s+/g,' ')),priceClassExamples:[...card.matchAll(/<[^>]{0,220}(?:price|money|amount)[^>]{0,140}>/gi)].slice(0,16).map(m=>m[0].slice(0,240)),summaryText:card.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,700)}));
             console.log('PARSE '+JSON.stringify({category_cards:leads.items.length,category_priced:leads.priced,target_card_bytes:card.length,price_p:p?.[0]||null,unique_links:[...new Set(links)].slice(0,6),helper:parsed.gmmsjCardEvidence(list,list.indexOf('detail_'+target),target),lead:selected?{price:selected.price,title:selected.title,server:selected.server}:null,detail:{game:detail.detail_game,price:detail.price,title:detail.page_title,status:detail.status}}));
           }catch(e){console.log('PARSE_ERROR '+String(e?.stack||e).slice(0,1000))}
           try{
