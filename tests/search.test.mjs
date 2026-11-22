@@ -13,8 +13,8 @@ function runtime(){
   if(url.hostname==='api.search.brave.com'){
    const q=url.searchParams.get('q')||'';calls.push(q);
    const host=q.match(/site:([^\s]+)/)?.[1];
-   const game=q.includes('浏览器测试')?'浏览器测试':q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
-   const matches=host==='shop.5173.com'&&game==='浏览器测试'?[{url:'https://shop.5173.com/goods/123456789012',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='浏览器测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=12345678901234567',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game&&game!=='浏览器测试'?[{
+   const game=q.includes('目录测试')?'目录测试':q.includes('浏览器测试')?'浏览器测试':q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
+   const matches=host==='gmmsj.com/dy'&&game==='目录测试'?[{url:'https://www.gmmsj.com/dy/5_zh.shtml',title:'目录测试账号商品列表',description:'所属游戏：目录测试'}]:host==='shop.5173.com'&&game==='浏览器测试'?[{url:'https://shop.5173.com/goods/123456789012',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='浏览器测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=12345678901234567',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game&&game!=='浏览器测试'?[{
     url:'https://www.pzds.com/goodsDetails/'+({三角洲:'TRI123',原神:'GEN123',没价:'NOP123',阻断:'BAD123'}[game])+'/6',
     title:game+'游戏账号'+(game==='没价'||game==='阻断'?'':' 商品售价 ¥899'),
     description:'所属游戏：'+game
@@ -24,6 +24,7 @@ function runtime(){
   }
   if(url.hostname==='shop.5173.com')return new Response('Access restricted',{status:403});
   if(url.hostname==='www.gmmsj.com'&&url.searchParams.get('book_id')==='12345678901234567')return new Response('Forbidden',{status:403});
+  if(url.hostname==='www.gmmsj.com'&&url.pathname.includes('detail_9999999999999.shtml'))return new Response('<html><title>目录测试账号 商品详情</title><body>商品详情 ￥450.00 库存 1 账号 编号 9999999999999 游戏名称 目录测试 账号正常</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   if(url.hostname==='www.gmmsj.com')return new Response('<html><title>G买卖-商品详情</title><body>商品详情 可领优惠券 ￥10 ￥280.00 库存 1 账号 编号 4470004765 游戏名称 青空测试 游戏区 演示区</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   if(url.hostname==='www.pzds.com'){
    if(url.pathname.includes('BAD123'))return new Response('Access denied',{status:403});
@@ -175,4 +176,22 @@ test('Browser Run is optional and does not fabricate prices when binding is miss
  assert.equal(result.data.unpriced_leads.length,2);
  assert.equal(result.data.search_diagnostics.browser.configured,false);
  assert.equal(result.data.search_diagnostics.browser.reason,'browser_binding_missing');
+});
+
+test('Browser Run reads a game-matched G买卖 category page and extracts real-looking detail URLs',async()=>{
+ const {worker}=runtime();
+ const calls=[];
+ const BROWSER={quickAction:async(action,options)=>{
+  assert.equal(action,'content');
+  calls.push(options.url);
+  assert.ok(options.url.includes('/dy/5_zh.shtml'));
+  return new Response('<html><title>目录测试账号列表</title><body>目录测试游戏账号 <a href="detail_9999999999999.shtml">账号商品详细信息</a><a href="/dy/5_zh/detail_9999999999999.shtml">查看此商品</a></body></html>',{status:200,headers:{'Content-Type':'text/html'}});
+ }};
+ const result=await post(worker,'/api/search',{query:'1000元以内的目录测试账号',filters:{}},{BROWSER});
+ assert.equal(result.status,200);
+ assert.equal(result.data.candidates.length,1);
+ assert.equal(result.data.candidates[0].price,450);
+ assert.ok(result.data.candidates[0].url.includes('/dy/5_zh/detail_9999999999999.shtml'));
+ assert.ok(result.data.trace.some(x=>x.tool==='browser_category_gmmsj.com'&&x.result.detail_pages>=1));
+ assert.equal(calls.length,1);
 });
