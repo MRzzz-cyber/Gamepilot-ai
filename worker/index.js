@@ -59,6 +59,38 @@ const GAME_CATALOG=[
 ];
 function detectGame(q){const text=String(q||'').toLowerCase();return GAME_CATALOG.find(g=>g.aliases.some(a=>text.includes(a.toLowerCase())))||null}
 function gameMatches(text,game){const t=String(text||'').toLowerCase();return game.aliases.some(a=>t.includes(a.toLowerCase()))}
+function requirements(query,filters,game){
+ const q=String(query||'');
+ const budget=Number(filters.max_price)||1000;
+ const hard=[{field:'game',value:game.name},{field:'price',max:budget}];
+ if(game.server&&filters.server&&filters.server!=='all')hard.push({field:'server',value:filters.server});
+ if(game.server&&filters.realname==='yes')hard.push({field:'realname',value:true});
+ const soft=[];
+ if(/高战力|战力高|战力越高/.test(q))soft.push('战力高');
+ if(/装备好|装备强|毕业装备/.test(q))soft.push('装备好');
+ if(/皮肤多|皮肤越多/.test(q))soft.push('皮肤多');
+ if(/高等级|等级高/.test(q))soft.push('等级高');
+ const profession=q.match(/(?:职业|职阶)\\s*[:：为是]?\\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1];
+ if(profession)hard.push({field:'profession',value:profession});
+ return {game:game.name,hard,soft,budget,flex_budget:Math.round(budget*1.3),price_policy:'只比较有明确价格证据的候选；索引价格非实时',inventory_policy:'未核验在售不得宣称可购买'};
+}
+function evaluateCandidate(x,req){
+ const failures=[],unknown=[],positive=[],full=x.title+' '+x.description;
+ for(const h of req.hard){
+  if(h.field==='game'&&!gameMatches(full,{aliases:GAME_CATALOG.find(g=>g.name===req.game)?.aliases||[req.game]}))failures.push('游戏不匹配');
+  if(h.field==='price'&&x.price!=null&&x.price>h.max)failures.push('超过预算');
+  if(h.field==='price'&&x.price==null)unknown.push('价格缺失');
+  if(h.field==='server'&&x.server&&x.server!==h.value)failures.push('区服不匹配');
+  if(h.field==='server'&&!x.server)unknown.push('区服未核实');
+  if(h.field==='realname'&&x.realname===false)failures.push('不支持二次实名');
+  if(h.field==='realname'&&x.realname==null)unknown.push('实名状态未核实');
+  if(h.field==='profession'&&!full.includes(h.value))unknown.push('职业未核实');
+ }
+ for(const term of req.soft){const hit=term==='战力高'?/战力\\s*[:：]?\\s*\\d{4,}/.test(full):term==='装备好'?/装备|神装|毕业/.test(full):term==='皮肤多'?x.skins!=null&&x.skins>=150:term==='等级高'?/等级\\s*[:：]?\\s*(?:2\\d\\d|3\\d\\d)/.test(full):false;if(hit)positive.push(term);else unknown.push(term+'缺少证据')}
+ const fit=failures.length?'rejected':unknown.length?'partial':'matched';
+ const score=failures.length?0:Math.max(10,Math.min(95,45+positive.length*12-unknown.length*7+(x.price<=req.budget?15:0)));
+ return {fit,score,failures,unknown,positive,reason:failures.length?'硬性条件不符':unknown.length?'部分属性未核实':'已知条件匹配（库存仍待核验）'};
+}
 function searchPlans(game,filters){
  const budget=Math.max(1,Number(filters.max_price)||1000),server=game.server&&filters.server!=='all'?filters.server:'';
  const terms=[game.name+' 账号 出售',game.name+' '+(server||game.terms[1])+' 账号',game.name+' '+game.terms[2]+' 交易',game.name+' '+Math.round(budget*0.8)+' 元',game.name+' '+Math.round(budget*1.1)+' 元',game.name+' 成品号',...game.aliases.slice(1,3).map(alias=>alias+' 账号 交易'),game.name+' 角色 价格'];
@@ -155,13 +187,13 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000),parsed=parse(query),incoming=body.filters||{};
  const filters={...parsed,...incoming,server:incoming.server&&incoming.server!=='all'?incoming.server:parsed.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsed.realname,max_price:Number(incoming.max_price)>0?Number(incoming.max_price):parsed.max_price};
- const discovery=await discover(query,filters,env);
+ const game=detectGame(query);const req=game?requirements(query,filters,game):null;const discovery=await discover(query,filters,env);
  const requested=String(body.model||'').slice(0,150);
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
- const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);const display=enriched.filter(x=>x.status!=='sold'&&x.price!=null);const ai=await agentReview(query,display,filters,env,model);
+ const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
  const noteMap=new Map((ai.notes||[]).map(n=>[n.id,n]));
  const candidates=display.map(x=>({...x,agent_note:noteMap.get(x.id)||null}));
- return json({items:[],candidates,coverage,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
+ return json({items:[],candidates,coverage,requirements:req,rejected_count:evaluated.filter(x=>x.requirement_evaluation?.fit==='rejected').length,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
 }
 
 if(url.pathname==='/api/chat'&&request.method==='POST'){if(!env.OPENROUTER_API_KEY)return json({error:'尚未配置 OPENROUTER_API_KEY；基础搜索和比较仍可使用'},503);let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);const requested=String(body.model||'').slice(0,150);const available=await listModels(env);const model=requested&&available.models.some(x=>x.id===requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;const messages=[{role:'system',content:'你是GamePilot游戏账号购买决策Agent。必须先调用search_listings获取商品；可能找到搜索索引候选，但未核验在售，禁止将索引候选称为可购买商品；禁止编造商品、价格或实时库存。不要编造商品、价格、服务费、账号同一性。仅比较相似账号；不同区服不得判定同款。回复简洁中文，说明来源和交易风险。不可执行支付。'}, {role:'user',content:prompt}];const trace=[];let answer='';let usage={};let items=[];try{for(let step=0;step<4;step++){const start=Date.now();const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+env.OPENROUTER_API_KEY,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:step===0?'required':'auto',temperature:0.1}),signal:AbortSignal.timeout(20000)});if(!response.ok)return json({error:'模型服务返回 '+response.status,details:(await response.text()).slice(0,180)},502);const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return json({error:'模型没有返回消息'},502);messages.push(msg);if(!msg.tool_calls?.length){answer=msg.content||'分析完成';break}for(const call of msg.tool_calls.slice(0,5)){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{}const result=call.function.name==='search_listings'?{items:[],discovery:await discover(prompt,args,env)}:execute(call.function.name,args);if(call.function.name==='search_listings')items=result.items||[];trace.push({tool:call.function.name,args,result,mode:'OpenRouter 工具调用',duration_ms:Date.now()-start});messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)})}}return json({answer:answer||'已达到调用上限，请缩小需求',trace,items,usage,model})}catch{return json({error:'Agent 调用失败，请检查 OpenRouter 配置和网络'},502)}}
