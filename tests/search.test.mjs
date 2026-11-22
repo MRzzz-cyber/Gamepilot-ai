@@ -93,6 +93,10 @@ test('search and chat use the same product identity and price gate',async()=>{
  assert.equal(direct.data.candidates[0].price,899);
  const underBudget=await post(worker,'/api/search',{query:'500元以内的三角洲账号',filters:{game:'原神'}});
  assert.equal(underBudget.data.candidates.length,0);
+ assert.equal(underBudget.data.harness.zero_result_reason,'over_budget');
+ assert.equal(underBudget.data.harness.result_status,'no_matches');
+ assert.equal(underBudget.data.harness.filter_gate.over_budget,1);
+ assert.equal(underBudget.data.harness.stages.at(-1).outcome,'no_match');
 });
 
 test('unpriced and blocked results preserve source links without inventing prices',async()=>{
