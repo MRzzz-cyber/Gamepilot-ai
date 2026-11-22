@@ -12,15 +12,18 @@ function structuredOffers(html){
 function gmmsjDetail(html){
  const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
  const status=/(?:浏览量|收藏量)[\s\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
- const productContext=/(?:商品详情|编号\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
+ const productContext=/(?:商品详情|(?:商品编号|账号编号|编号)\s*[:：]?\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
  if(!productContext)return {status,price:null,price_evidence:'unknown'};
- const head=body.split(/(?:交易流程|保障类型|商品详情\s*游戏名称)/)[0].slice(0,3000);
+ const head=body.split(/(?:猜你喜欢|相似推荐|商品留言|交易流程)/)[0].slice(0,6000);
  // H5 header: coupon banners may show ¥10 before the actual "¥280.00 库存 1 账号".
  const stockPrice=head.match(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)\s*库存\s*\d+\s*(?:账号|装备|游戏币|道具)/i);
  const labeled=head.match(/(?:商品售价|出售价格|售价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/i);
  const contextual=head.match(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)\s*(?:账号\s*[【\[]|账号\s+自助验货)/i);
+ const saleText=head.split(/(?:保障类型|商品类别)/).at(-1)||head;
+ const visible=[...saleText.matchAll(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/g)].filter(m=>!/(?:优惠券|可领|领券|返现|抵扣|服务费)\s*[:：]?\s*$/.test(saleText.slice(Math.max(0,m.index-26),m.index))).map(m=>Number(m[1])).filter(n=>n>=10&&n<=1000000);
+ const standalone=[...new Set(visible)];
  const selected=stockPrice||labeled||contextual;
- const price=selected?Number(selected[1]):null;
+ const price=selected?Number(selected[1]):standalone.length===1?standalone[0]:null;
  return {status,price:price!=null&&price>=10&&price<=1000000?price:null,price_evidence:price!=null?'gmmsj_detail_visible_price':'unknown'};
 }
 function extractDetailPrice(html){
@@ -393,6 +396,35 @@ function isGenericPage(title,description,game){
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 // First-party public category feed: source is explicitly mainland MapleStory, never TMS/GMS.
+// Extract a price only from a short source HTML card enclosing this exact product ID.
+// This prevents coupons and prices of neighboring cards from becoming fabricated quotes.
+function gmmsjCardEvidence(html,linkIndex,productId){
+ const source=String(html||''),start=Math.max(0,linkIndex-6000);
+ const opens=[...source.slice(start,linkIndex).matchAll(/<(li|article|section|div)\b[^>]*>/gi)].reverse().slice(0,48);
+ for(const opening of opens){
+  const tag=opening[1].toLowerCase(),offset=start+opening.index;
+  if(linkIndex-offset>4500)continue;
+  const tags=new RegExp('<(/?)'+tag+'\\b[^>]*>','gi');
+  let depth=0,end=-1;
+  for(const token of source.slice(offset,offset+9000).matchAll(tags)){
+   depth+=token[1]?-1:1;
+   if(depth===0){end=offset+token.index+token[0].length;break}
+  }
+  if(end<=linkIndex||end-offset>7000)continue;
+  const card=source.slice(offset,end);
+  const ids=[...card.matchAll(/detail_([a-z0-9]+)\.shtml/gi)].map(m=>m[1].toLowerCase());
+  if(!ids.length||new Set(ids).size!==1||ids[0]!==String(productId).toLowerCase())continue;
+  const plain=decodeEntities(card.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ')).trim();
+  if(plain.length>1800)continue;
+  const labeled=[...plain.matchAll(/(?:商品售价|当前售价|出售价格|售价|现价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/gi)].map(m=>Number(m[1])).filter(v=>v>=10&&v<=1000000);
+  const prices=[...plain.matchAll(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/g)].filter(m=>!/(?:优惠券|可领|领券|返券|返现|抵扣|满减|折扣|运费|服务费|原价|划线价)\s*[:：]?\s*$/.test(plain.slice(Math.max(0,m.index-32),m.index))).map(m=>Number(m[1])).filter(v=>v>=10&&v<=1000000);
+  const unique=[...new Set(labeled.length?labeled:prices)];
+  if(unique.length!==1)continue;
+  const title=plain.match(/(?:账号|帐号)\s*(\[[^\]]{2,45}\][\s\S]{5,145}?)(?=\s*(?:可用优惠券|商品类型|游戏区服|[¥￥]|查看详情|立即购买))/u)?.[1]?.trim().slice(0,125)||null;
+  return {price:unique[0],title};
+ }
+ return {price:null,title:null};
+}
 async function gmmsjCategoryLeads(game,filters){
  if(game?.name!=='冒险岛'||(filters.version&&filters.version!=='国服'))return {items:[],diagnostic:'edition_not_supported'};
  const source='https://www.gmmsj.com/dy/5_zh.shtml?sourceType=4&special=1';
@@ -415,9 +447,11 @@ async function gmmsjCategoryLeads(game,filters){
    const anchorTitle=cleanText(decodeEntities(anchorHtml.replace(/<[^>]+>/g,' '))).trim();
    const titleFromLink=anchorTitle.length>=10&&!/^(?:查看详情|立即购买|点击查看|商品详情|账号商品详细信息)/.test(anchorTitle)?anchorTitle.slice(0,125):null;
    const productId=url.pathname.split('/').pop().replace(/\.shtml$/,'').replace(/^detail_/,'');
-   const title=titleFromLink?'冒险岛 '+titleFromLink:'冒险岛商品 '+productId.slice(-10)+'（详情待核验）';
-   const nearby=titleFromLink?'商品链接文字：'+titleFromLink:'来自G买卖冒险岛分类页，账号属性等待详情验证';
-   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:nearby+' 【冒险岛国服分类页】',server:null,price:null,price_evidence:'unknown',price_source_label:'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:'官方冒险岛国服分类页商品链接，详情信息尚未核验',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
+   const card=gmmsjCardEvidence(html,m.index,productId);
+   const listingTitle=titleFromLink||card.title;
+   const title=listingTitle?'冒险岛 '+listingTitle:'冒险岛商品 '+productId.slice(-10)+'（详情待核验）';
+   const nearby=listingTitle?'商品卡片文字：'+listingTitle:'来自G买卖冒险岛分类页，账号属性等待详情验证';
+   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:nearby+' 【冒险岛国服分类页】',server:null,price:card.price,price_evidence:card.price!=null?'gmmsj_category_visible_price':'unknown',price_source_label:card.price!=null?'G买卖商品列表标价（非实时）':'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:card.price!=null?'官方分类页商品卡片可见标价，库存与详情价格仍需核验':'官方冒险岛国服分类页商品链接，详情信息尚未核验',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
    if(unique.size>=35)break;
   }
   return {items:[...unique.values()],diagnostic:unique.size?'ok':'no_product_links_in_html',links_found:links.length};
@@ -636,8 +670,8 @@ async function agentSearchListings(query,args,env){
   .sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0))
   .slice(0,20)
   .map(x=>{
-   const detailPrice=/^(?:detail_|gmmsj_)/.test(x.price_evidence||'');
-   const sourceLabel=detailPrice?'商品详情页':'搜索索引（非实时）';
+   const detailPrice=/^(?:detail_|gmmsj_detail_)/.test(x.price_evidence||'');
+   const sourceLabel=detailPrice?'商品详情页':x.price_evidence==='gmmsj_category_visible_price'?'源站商品列表（非实时）':'搜索索引（非实时）';
    const full=(x.title||'')+' '+(x.description||'');
    return {id:x.id,game:game.name,title:x.title,description:x.description,platform:x.platform,url:x.url,
     price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,detail_summary:x.detail_summary||null,detail_listing_id:x.detail_listing_id||null,

@@ -264,3 +264,50 @@ test('G买卖 category cards preserve distinct IDs rather than copying adjacent 
  assert.ok(result.items[0].title!==result.items[1].title);
  assert.ok(result.items.every(x=>x.price===null&&x.title.includes('详情待核验')));
 });
+
+
+test('G买卖 category prices stay attached to their own card; coupon and neighboring prices never leak',async()=>{
+ const html='<html><body><ul>'+
+ '<li><a href="/dy/5_zh/detail_1000000000001.shtml">账号 [剑豪 290级]高战力通用账号</a><span>可领优惠券 ¥10</span><div class="sell-price">¥1800.00</div></li>'+
+ '<li><a href="/dy/5_zh/detail_1000000000002.shtml">账号 [莲 280级]高等级绝版装备</a><div class="sell-price">¥2555.00</div></li>'+
+ '<li><a href="/dy/5_zh/detail_1000000000003.shtml">查看详情</a></li>'+
+ '<li><a href="/dy/5_zh/detail_1000000000004.shtml">账号 [火毒 290级]待核验</a><div>¥1500.00 ¥1700.00</div></li>'+
+ '</ul></body></html>';
+ const api=new Function('fetch','URL','AbortSignal',source.replace('export default {','const __worker = {')+';return {gmmsjCategoryLeads}')(
+  async()=>new Response(html,{status:200,headers:{'Content-Type':'text/html'}}),URL,AbortSignal);
+ const result=await api.gmmsjCategoryLeads({name:'冒险岛'},{version:null});
+ assert.equal(result.items.length,4);
+ assert.equal(result.items[0].price,1800);
+ assert.equal(result.items[1].price,2555);
+ assert.equal(result.items[2].price,null);
+ assert.equal(result.items[3].price,null);
+ assert.equal(result.items[0].price_evidence,'gmmsj_category_visible_price');
+ assert.match(result.items[0].title,/剑豪/);
+ assert.match(result.items[1].title,/莲/);
+});
+
+test('G买卖 detail price after 保障类型 overrides listing and is not confused with coupons',()=>{
+ const {gmmsjDetail}=runtime();
+ const html='<html><title>冒险岛账号</title><body>商品编号：1890009016 浏览量（100） 收藏量（） 出售中 游戏区服：风之大陆 保障类型：已购买保障服务 商品类别：账号转卖 ¥8888.00 成交返元优惠券 猜你喜欢 ¥88</body></html>';
+ assert.equal(gmmsjDetail(html).price,8888);
+ assert.equal(gmmsjDetail(html).status,'listed');
+});
+
+test('G买卖 visible list prices survive blocked detail fetch and remain labeled non-realtime',async()=>{
+ const html='<html><body><ul><li><a href="/dy/5_zh/detail_1000000000001.shtml">账号 [剑豪 290级]高战力通用账号</a><div>¥1800.00</div></li></ul></body></html>';
+ const fakeFetch=async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==='www.gmmsj.com'&&url.pathname==='/dy/5_zh.shtml')return new Response(html,{status:200,headers:{'Content-Type':'text/html'}});
+  return new Response('Restricted',{status:403});
+ };
+ const api=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {worker}')(
+  fakeFetch,URL,Response,AbortSignal);
+ const res=await api.worker.fetch({method:'POST',url:'https://gamepilot.example/api/search',json:async()=>({query:'2000元以内冒险岛账号',filters:{}})},{});
+ assert.equal(res.status,200);
+ const data=await res.json();
+ assert.equal(data.items.length,1);
+ assert.equal(data.items[0].price,1800);
+ assert.equal(data.items[0].price_evidence,'gmmsj_category_visible_price');
+ assert.equal(data.items[0].price_audit.source,'源站商品列表（非实时）');
+ assert.equal(data.items[0].price_audit.is_realtime,false);
+});
