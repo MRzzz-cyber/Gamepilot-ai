@@ -179,20 +179,20 @@ function searchPlans(game,filters){
  const server=game.server&&filters.server!=='all'?filters.server:'';
  const edition=game.name==='冒险岛'?({'国际服':'冒险岛 国际服 GMS','台服／枫之谷':'枫之谷 台服 TMS','手游版':'冒险岛M','国服':'冒险岛 国服'}[filters.version]||game.name):game.name;
  const focused=game.name==='王者荣耀'
-  ? [game.name+' '+(server||'苹果QQ')+' 账号',game.name+' '+(server||'苹果QQ')+' 皮肤',game.name+' 二次实名 账号']
+  ? [game.name+' '+(server||'苹果QQ')+' 账号',game.name+' '+(server||'苹果QQ')+' 皮肤',game.name+' '+(server||'苹果QQ')+' 二次实名']
   : game.name==='冒险岛'
   ? [edition+' 成品号',edition+' 账号 出售',edition+' '+(filters.profession||'角色')+' 账号']
   : [game.name+' 成品号',game.name+' 账号 售价',game.name+' 角色 出售'];
  return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>{
   const detailPath=d.host==='pzds.com'?'inurl:goodsDetails':d.host==='gmmsj.com'?'inurl:detail_':'';
-  // Put product-page-focused searches first; only the first six plans per platform are executed.
+  // Query broad product discovery first; a game+platform+edition+budget query is often too restrictive.
   const terms=[
-   detailPath+' '+edition+' '+(server||'账号'),
-   detailPath+' '+edition+' 售价',
-   ...focused,
-   edition+' 商品编号',
-   edition+' 账号 出售',
-   edition+' 账号 '+Math.round(budget*0.8)+'元'
+   game.name+' 账号',
+   edition+' '+(server||'账号'),
+   focused[0],
+   focused[1],
+   detailPath+' '+game.name,
+   game.name+' '+(server||'账号')+' 出售'
   ];
   return [...new Set(terms.map(x=>x.trim()))].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i}));
  });
@@ -258,7 +258,7 @@ async function discover(query,filters,env){
  x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;x.match_level=(server&&x.server!==server)||(game.server&&filters.realname==='yes'&&x.realname!==true)||(x.price===null)?'incomplete':'candidate';
  }
  all.sort((a,b)=>{const tier=x=>x.price===null?2:x.price<=filters.max_price?0:x.price<=filters.max_price*1.1?1:3;return tier(a)-tier(b)||b.match_score-a.match_score});
- return {candidates:all.filter(x=>x.price==null||x.price<=filters.max_price*1.3).slice(0,80),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'已发现商品线索；无明确报价的线索不会展示为比价卡片':'未找到可识别的商品详情页；不代表市场无货'};
+ return {candidates:all.slice(0,80),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'已发现商品线索；无明确报价的线索不会展示为比价卡片':'未找到可识别的商品详情页；不代表市场无货'};
 }
 
 
@@ -329,7 +329,7 @@ async function agentSearchListings(query,args,env){
  const editionSafe=game?.name==='冒险岛'&&filters.version?enriched.filter(x=>mapleEditionMatches(x.title,filters.version)&&(!x.detail_game||x.detail_game===game.name)):enriched;
  const req=game?requirements(query,filters,game):null;
  const items=editionSafe.map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.status!=='wrong_game'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
- return {items,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
+ return {items,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
 async function watchPrice(raw,env){
@@ -355,7 +355,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
   try{
    const result=await agentSearchListings(searchPrompt,{version:clarification.requirements.version,max_price:clarification.requirements.max_price||100000,profession:clarification.requirements.profession,server:clarification.requirements.server||'all',realname:clarification.requirements.realname||'all'},env);
    const count=result.items?.length||0;
-   return json({answer:count?'已按'+(clarification.requirements.version||clarification.requirements.server||clarification.requirements.game)+'和预算 ¥'+clarification.requirements.max_price+' 搜索到 '+count+' 条商品线索；请逐项核实价格与在售状态。':'已按'+(clarification.requirements.version||clarification.requirements.server||clarification.requirements.game)+'和预算 ¥'+clarification.requirements.max_price+' 搜索，但尚未取得符合条件且有价格的商品。可以调整预算或职业继续搜索。',requirements:clarification.requirements,items:result.items||[],trace:result.trace||[],coverage:result.coverage||null,status:'searched',search_completed:true});
+   return json({answer:count?'已按'+(clarification.requirements.version||clarification.requirements.server||clarification.requirements.game)+'和预算 ¥'+clarification.requirements.max_price+' 搜索到 '+count+' 条商品线索；请逐项核实价格与在售状态。' :'已搜索到 '+(result.discovered_count||0)+' 条商品线索，其中 '+(result.priced_count||0)+' 条提取到参考价格；目前没有通过全部条件筛选的商品。不能据此判断平台无货，可查看搜索诊断和放宽非必要条件。',requirements:clarification.requirements,items:result.items||[],trace:result.trace||[],coverage:result.coverage||null,discovered_count:result.discovered_count||0,priced_count:result.priced_count||0,status:'searched',search_completed:true});
   }catch(e){return json({error:'商品搜索失败',details:String(e?.message||e).slice(0,160),requirements:clarification.requirements},502)}
  }
  if(!env.OPENROUTER_API_KEY)return json({error:'非冒险岛对话分析需要配置 OPENROUTER_API_KEY'},503);const requested=String(body.model||'').slice(0,150);
