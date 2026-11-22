@@ -42,3 +42,22 @@ jobs:
            }catch(e){console.log('SOURCE_ERROR '+name+' '+String(e?.message||e))}
           }
           NODE
+
+      - name: Inspect 盼之 first-party game categories and price markup
+        run: |
+          node --input-type=module <<'NODE'
+          const domains=['https://www.pzds.com/','https://www.pzds.com/goodsList/1','https://www.pzds.com/goodsList/2','https://www.pzds.com/goodsList/3','https://www.pzds.com/goodsList/4','https://www.pzds.com/goodsList/6','https://www.pzds.com/goodsDetails/C8YDZP/6'];
+          const ctxt=(s,index,size=240)=>index<0?'':s.slice(Math.max(0,index-size),index+size).replace(/\s+/g,' ').slice(0,700);
+          for(const url of domains){
+            try{
+              const response=await fetch(url,{headers:{Accept:'text/html','User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(12000)});
+              const h=(await response.text()).slice(0,900000);
+              const links=[...h.matchAll(/href=["']([^"']*goodsList[^"']*)["']/gi)].slice(0,10).map(m=>m[1].slice(0,100));
+              const productLinks=[...h.matchAll(/href=["']([^"']*goodsDetails[^"']*)["']/gi)].slice(0,6).map(m=>m[1].slice(0,110));
+              const source=h.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.slice(0,100);
+              const priceContexts=[...h.matchAll(/(?:price|sellingPrice|goodsPrice|salePrice|565)[^<\n]{0,30}/gi)].slice(0,10).map(m=>ctxt(h,m.index,90));
+              const kingContexts=[...h.matchAll(/王者荣耀/g)].slice(0,5).map(m=>ctxt(h,m.index,180));
+              console.log('CATEGORY_PROBE '+JSON.stringify({url,status:response.status,bytes:h.length,title:source,links,productLinks,kingContexts:kingContexts.slice(0,3),priceContexts:priceContexts.slice(0,6)}));
+            }catch(e){console.log('CATEGORY_ERROR '+url+' '+String(e?.message||e))}
+          }
+          NODE
