@@ -12,14 +12,19 @@ function runtime(){
   const url=new URL(String(input));
   if(url.hostname==='api.search.brave.com'){
    const q=url.searchParams.get('q')||'';calls.push(q);
-   const host=q.match(/site:([^\s]+)/)?.[1];
+   // One Brave request now searches all three trusted domains via OR operators.
+   const hosts=[...q.matchAll(/site:([^\s)]+)/g)].flatMap(m=>m[1]==='gmmsj.com'?['gmmsj.com/h5/goods/detail','gmmsj.com/dy','gmmsj.com']:m[1]==='5173.com'?['shop.5173.com','s.5173.com','5173.com']:[m[1]]);
    const game=q.includes('目录测试')?'目录测试':q.includes('浏览器测试')?'浏览器测试':q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
-   const matches=host==='gmmsj.com/dy'&&game==='目录测试'?[{url:'https://www.gmmsj.com/dy/5_zh.shtml',title:'目录测试账号商品列表',description:'所属游戏：目录测试'}]:host==='shop.5173.com'&&game==='浏览器测试'?[{url:'https://shop.5173.com/goods/123456789012',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='浏览器测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=12345678901234567',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game&&game!=='浏览器测试'?[{
+   const matches=[];
+   for(const host of hosts){
+   const match=host==='gmmsj.com/dy'&&game==='目录测试'?[{url:'https://www.gmmsj.com/dy/5_zh.shtml',title:'目录测试账号商品列表',description:'所属游戏：目录测试'}]:host==='shop.5173.com'&&game==='浏览器测试'?[{url:'https://shop.5173.com/goods/123456789012',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='浏览器测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=12345678901234567',title:'浏览器测试账号 商品详情',description:'所属游戏：浏览器测试'}]:host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game&&game!=='浏览器测试'?[{
     url:'https://www.pzds.com/goodsDetails/'+({三角洲:'TRI123',原神:'GEN123',没价:'NOP123',阻断:'BAD123'}[game])+'/6',
     title:game+'游戏账号'+(game==='没价'||game==='阻断'?'':' 商品售价 ¥899'),
     description:'所属游戏：'+game
    }]:[];
+   matches.push(...match);
    if(host==='pzds.com'&&game==='三角洲')matches.push({url:'https://www.pzds.com/goodsDetails/WRONG123/6',title:'原神账号 商品售价 ¥100',description:'猜你喜欢三角洲'});
+   }
    return new Response(JSON.stringify({web:{results:matches}}),{status:200,headers:{'Content-Type':'application/json'}});
   }
   if(url.hostname==='shop.5173.com')return new Response('Access restricted',{status:403});
@@ -402,4 +407,76 @@ test('G买卖官方 data-bookid 大型商品卡片提取真实价，忽略优惠
  assert.match(result.items[0].title,/夜光法师/);
  assert.match(result.items[1].title,/剑豪/);
  assert.equal(result.items[0].price_evidence,'gmmsj_category_visible_price');
+});
+
+
+test('官方盼之王者荣耀列表在 Brave 402 时仍提取正确商品价格并严格筛选区服、实名',async()=>{
+ const card=(id,title,server,realname,amount)=>'<a href="/goodsDetails/'+id+'/6?from=official" title="'+title+'" data-track-click="goods" >'+
+  '<div class="newGoodsList_box"><div>商品 '+id+'</div><div>'+server+' '+realname+'</div>'+
+  '<div class="money"><span>¥</span><span>'+amount+'</span></div><span>已减311</span></div></a>';
+ const html='<html><head><title>王者荣耀游戏账号交易平台_王者荣耀账号购买-盼之账号</title></head><body>'+
+  card('KING1','皮肤数量311 英雄数量121 荣耀王者','苹果QQ','可二次实名','565')+
+  card('KING2','皮肤数量280 英雄数量111 荣耀黄金','苹果QQ','不可二次实名','735')+
+  card('KING3','皮肤数量250 英雄数量102 荣耀王者','安卓QQ','可二次实名','475')+
+  '</body></html>';
+ const calls=[];
+ const fakeFetch=async input=>{
+  const url=new URL(String(input));calls.push(url.href);
+  if(url.hostname==='api.search.brave.com')return new Response(JSON.stringify({error:{detail:'Prepaid credit balance is insufficient'}}),{status:402,headers:{'Content-Type':'application/json'}});
+  if(url.hostname==='www.pzds.com'&&url.pathname==='/goodsList/7/6')return new Response(html,{status:200,headers:{'Content-Type':'text/html'}});
+  if(url.hostname==='www.pzds.com'&&url.pathname.includes('/goodsDetails/'))return new Response('Forbidden',{status:403});
+  throw Error('Unexpected network call '+url.href);
+ };
+ const api=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+';return {worker,pzdsCategoryLeads,pzdsCategoryCards}')(
+  fakeFetch,URL,Response,AbortSignal);
+ const feed=await api.pzdsCategoryLeads({name:'王者荣耀'},{});
+ assert.equal(feed.priced,3);
+ assert.deepEqual(feed.items.map(x=>x.price),[565,735,475]);
+ assert.equal(feed.items[0].server,'苹果QQ');
+ assert.equal(feed.items[0].realname,true);
+ assert.equal(feed.items[1].realname,false);
+ const res=await api.worker.fetch({url:'https://gamepilot.example/api/search',method:'POST',
+  json:async()=>({query:'1000元以内的王者荣耀苹果QQ账号，支持二次实名，皮肤越多越好',filters:{game:'王者荣耀',max_price:1000,server:'苹果QQ',realname:'yes'}})},{BRAVE_SEARCH_API_KEY:'test'});
+ const data=await res.json();
+ assert.equal(res.status,200);
+ assert.equal(data.candidates.length,1);
+ assert.equal(data.candidates[0].price,565);
+ assert.equal(data.candidates[0].server,'苹果QQ');
+ assert.equal(data.candidates[0].realname,true);
+ assert.equal(data.candidates[0].price_audit.source,'源站商品列表（非实时）');
+ assert.equal(data.excluded_leads.length,2);
+ assert.equal(data.coverage.platforms.find(x=>x.platform==='盼之账号').with_price,3);
+ assert.ok(data.trace.some(x=>x.tool==='pzds_category'&&x.result.priced===3));
+ assert.ok(data.trace.some(x=>x.tool==='discover_brave'&&x.result.http_status===402));
+ assert.ok(calls.some(x=>x.includes('/goodsList/7/6')));
+});
+
+
+test('Brave caps to one request and 10 results; cache avoids a second paid call',async()=>{
+ const requests=[],stored=new Map();
+ const localCache={match:async req=>stored.get(req.url)?.clone()||null,put:async(req,response)=>{stored.set(req.url,response.clone())}};
+ const mock=async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==='api.search.brave.com'){
+   requests.push({q:url.searchParams.get('q'),count:url.searchParams.get('count')});
+   return new Response(JSON.stringify({web:{results:[]}}),{status:200,headers:{'Content-Type':'application/json'}});
+  }
+  if(url.hostname==='www.pzds.com'&&url.pathname==='/goodsList/7/6')return new Response('Not Found',{status:404});
+  if(url.hostname==='www.gmmsj.com')return new Response('Not Found',{status:404});
+  if(url.hostname==='shop.5173.com')return new Response('Not Found',{status:404});
+  throw Error('Unexpected '+url.href);
+ };
+ const api=new Function('fetch','URL','Response','AbortSignal','caches',source.replace('export default {','const worker = {')+';return {worker}')(
+  mock,URL,Response,AbortSignal,{default:localCache});
+ const search=async()=>{const response=await api.worker.fetch({method:'POST',url:'https://gamepilot.example/api/search',
+   json:async()=>({query:'500元以内的原神账号',filters:{game:'原神',max_price:500}})},{BRAVE_SEARCH_API_KEY:'test'});return response.json()};
+ const first=await search();
+ assert.equal(requests.length,1);
+ assert.equal(requests[0].count,'10');
+ assert.equal(first.search_diagnostics.brave.requests,1);
+ assert.equal(first.search_diagnostics.brave.max_results,10);
+ const second=await search();
+ assert.equal(requests.length,1);
+ assert.equal(second.search_diagnostics.brave.requests,0);
+ assert.equal(second.search_diagnostics.brave.cache_hits,1);
 });
