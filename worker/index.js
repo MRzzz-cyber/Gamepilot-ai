@@ -33,7 +33,7 @@ async function verifyListing(raw){
  }catch{return {status:'unverified',message:'详情页访问超时或受限',source_url:u.href,price:null}}
 }
 async function enrichCandidates(candidates){
- const top=candidates.slice(0,16);
+ const top=candidates.slice(0,24);
  const checks=await Promise.all(top.map(x=>verifyListing(x.url)));
  return candidates.map((x,i)=>{
   if(i>=checks.length)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
@@ -43,7 +43,7 @@ async function enrichCandidates(candidates){
 }
 function coverageReport(candidates,trace){
  const hosts=['盼之账号','螃蟹账号','5173','G买卖'];
- const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','螃蟹账号':'pxb7.com','5173':'5173.com','G买卖':'gmmsj.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
+ const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,enabled:SEARCH_DOMAINS.find(d=>d.platform===platform)?.enabled!==false,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','螃蟹账号':'pxb7.com','5173':'5173.com','G买卖':'gmmsj.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
  return {platforms,totals:{discovered:candidates.length,with_price:candidates.filter(c=>c.price!=null).length,detail_checked:candidates.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:candidates.filter(c=>c.detail_price!=null).length,listed:candidates.filter(c=>c.status==='listed').length,sold:candidates.filter(c=>c.status==='sold').length}};
 }
 
@@ -62,9 +62,9 @@ function gameMatches(text,game){const t=String(text||'').toLowerCase();return ga
 function searchPlans(game,filters){
  const budget=Math.max(1,Number(filters.max_price)||1000),server=game.server&&filters.server!=='all'?filters.server:'';
  const terms=[game.name+' 账号 出售',game.name+' '+(server||game.terms[1])+' 账号',game.name+' '+game.terms[2]+' 交易',game.name+' '+Math.round(budget*0.8)+' 元',game.name+' '+Math.round(budget*1.1)+' 元',game.name+' 成品号',...game.aliases.slice(1,3).map(alias=>alias+' 账号 交易'),game.name+' 角色 价格'];
- return SEARCH_DOMAINS.flatMap(d=>terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
+ return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:i<3?0:1,variant:i})));
 }
-const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
+const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号',enabled:false},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='pxb7.com')return /^\/(?:seo\/buy\/\d+(?:\/\d+)?|goods?\/[a-z0-9_-]+|detail\/[a-z0-9_-]+|(?:buy|product|item)\/[a-z0-9_-]+|[a-z0-9_-]*goods[a-z0-9_/-]*|[a-z0-9_-]*product[a-z0-9_/-]*)\/?$/i.test(p);if(domain==='5173.com'||domain==='gmmsj.com')return /\/(?:goods?|product|detail|item|sale|buy)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
 function extractPrice(s){
  const t=String(s||'').replace(/,/g,'');
@@ -81,7 +81,7 @@ async function discover(query,filters,env){
  const plans=searchPlans(game,filters);
  for(let batch=0;batch<plans.length;batch+=4){await Promise.all(plans.slice(batch,batch+4).map(async({d,q,offset})=>{
   const t=Date.now();try{
-   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','10');u.searchParams.set('text_decorations','false');
+   const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('offset',String(offset));u.searchParams.set('text_decorations','false');
    const r=await fetch(u,{headers:{Accept:'application/json','X-Subscription-Token':env.BRAVE_SEARCH_API_KEY},signal:AbortSignal.timeout(8500)});
    if(!r.ok){let detail='';try{const err=await r.json();detail=String(err?.error?.detail||err?.detail||'').slice(0,180);const fields=err?.error?.meta?.errors;if(Array.isArray(fields))detail+=' '+fields.map(x=>String(x.loc?.join('.')||'')+': '+String(x.msg||'')).join('; ').slice(0,220)}catch{}trace.push({tool:'discover_'+d.host,query:q,result:{http_status:r.status,error_detail:detail||'upstream_error'},duration_ms:Date.now()-t});return}
    const j=await r.json();let valid=0,hostMatched=0,productMatched=0,serverRejected=0,soldRejected=0;for(const hit of j.web?.results||[]){
@@ -109,7 +109,7 @@ async function discover(query,filters,env){
  x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;x.match_level=(server&&x.server!==server)||(game.server&&filters.realname==='yes'&&x.realname!==true)||(x.price===null)?'incomplete':'candidate';
  }
  all.sort((a,b)=>{const tier=x=>x.price===null?2:x.price<=filters.max_price?0:x.price<=filters.max_price*1.1?1:3;return tier(a)-tier(b)||b.match_score-a.match_score});
- return {candidates:all.filter(x=>x.price===null||x.price<=filters.max_price*1.3).slice(0,48),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
+ return {candidates:all.filter(x=>x.price===null||x.price<=filters.max_price*1.3).slice(0,80),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
 }
 
 
