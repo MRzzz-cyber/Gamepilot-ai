@@ -25,3 +25,17 @@ test('architecture cards and statuses have responsive styles',()=>{
  for(const token of ['.harnessArchitectureFlow','.harnessArchitectureLayer','.harnessViewTabs','.harnessOutputGrid','.harnessInterviewDetails','.executionStep.error'])
   assert.ok(css.includes(token),'missing style: '+token);
 });
+
+test('harness does not mark zero matches or skipped tools as success',()=>{
+ const a=jsx.indexOf('const harnessStageState=');
+ const b=jsx.indexOf('const INTERVIEW_SCRIPT=',a);
+ assert.ok(a>=0&&b>a,'status helpers must be included in the product UI');
+ const {harnessStageState,harnessResultDescription}=new Function(jsx.slice(a,b)+';return {harnessStageState,harnessResultDescription}')();
+ assert.equal(harnessStageState({stage:'hard_filter_and_rank',count:0,outcome:'no_match'}),'warning');
+ assert.equal(harnessStageState({stage:'hard_filter_and_rank',count:3,outcome:'matched'}),'finished');
+ assert.equal(harnessStageState({stage:'edition_filter',skipped:true,count:37,outcome:'skipped'}),'pending');
+ assert.equal(harnessStageState({stage:'browser_render',count:0,configured:true,outcome:'not_used'}),'pending');
+ assert.equal(harnessStageState({stage:'browser_render',count:2,priced:0,outcome:'no_price_recovered'}),'warning');
+ assert.match(harnessResultDescription({zero_result_reason:'over_budget',filter_gate:{over_budget:1}},[]),/预算/);
+ assert.ok(jsx.includes('V1.0 · HARNESS MAP'),'visible version must identify newly deployed UI');
+});
