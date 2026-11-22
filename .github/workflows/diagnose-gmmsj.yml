@@ -1,0 +1,37 @@
+name: Diagnose G买卖 public source and deployed API
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect public product/category HTML and live API
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const urls=[
+            ['category','https://www.gmmsj.com/dy/5_zh.shtml?sourceType=4&special=1'],
+            ['category_plain','https://www.gmmsj.com/dy/5_zh.shtml'],
+            ['detail','https://www.gmmsj.com/dy/5_zh/detail_00005000000017951759544860003785.shtml'],
+            ['api_health','https://gamepilot-ai.zqsanjingshou.workers.dev/api/health'],
+            ['api_acceptance','https://gamepilot-ai.zqsanjingshou.workers.dev/api/acceptance']
+          ];
+          const sample=(s,t,pre=200,post=500)=>{const i=s.indexOf(t);return i<0?null:s.slice(Math.max(0,i-pre),i+post).replace(/\s+/g,' ').slice(0,800)};
+          for(const [kind,url] of urls){
+            const start=Date.now();
+            try{
+              const r=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,application/json'},signal:AbortSignal.timeout(14000)});
+              const s=(await r.text()).slice(0,1600000);
+              const ids=[...s.matchAll(/detail_[a-z0-9]+\.shtml/gi)].slice(0,12).map(x=>x[0]);
+              console.log(JSON.stringify({kind,status:r.status,ms:Date.now()-start,bytes:s.length,content_type:r.headers.get('content-type'),detail_link_count:[...s.matchAll(/detail_[a-z0-9]+\.shtml/gi)].length,price_symbols:[...s.matchAll(/[¥￥]\s*[1-9]\d+/g)].length,target_index:s.indexOf('4860003785'),first_detail:ids.slice(0,5),around_target:sample(s,'4860003785',300,680),around_price:sample(s,'1700.00',250,200),starts:s.slice(0,160).replace(/\s+/g,' '),api_text:kind.startsWith('api_')?s.slice(0,2000):undefined}));
+            }catch(e){console.log(JSON.stringify({kind,error:String(e?.message||e).slice(0,220),ms:Date.now()-start}))}
+          }
+          try{
+            const r=await fetch('https://gamepilot-ai.zqsanjingshou.workers.dev/api/verify-lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({game:'冒险岛',url:'https://www.gmmsj.com/dy/5_zh/detail_00005000000017951759544860003785.shtml',max_price:2000}),signal:AbortSignal.timeout(22000)});
+            console.log('VERIFY_LEAD '+r.status+' '+(await r.text()).slice(0,1800));
+          }catch(e){console.log('VERIFY_LEAD_ERROR '+String(e?.message||e))}
+          NODE
