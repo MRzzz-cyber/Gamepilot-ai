@@ -108,9 +108,9 @@ function extractPrice(s){
  const t=String(s||'').replace(/,/g,'').replace(/\s+/g,' ');
  // Only explicit listing prices; never infer prices from levels, IDs, views or generic platform copy.
  const patterns=[
-  /(?:售价|现价|到手价|商品价格|标价|卖价|参考价|价格)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\\.\d{1,2})?)\s*(?:元)?/gi,
-  /[¥￥]\s*([1-9]\d{0,5}(?:\\.\d{1,2})?)/g,
-  /([1-9]\d{0,5}(?:\\.\d{1,2})?)\s*元(?:\s|$|[，。；])/g
+  /(?:售价|现价|到手价|商品价格|标价|卖价|参考价|价格)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\.\d{1,2})?)\s*(?:元)?/gi,
+  /[¥￥]\s*([1-9]\d{0,5}(?:\.\d{1,2})?)/g,
+  /([1-9]\d{0,5}(?:\.\d{1,2})?)\s*元(?:\s|$|[，。；])/g
  ];
  for(const re of patterns){for(const m of t.matchAll(re)){const v=Number(m[1]);if(Number.isFinite(v)&&v>=1&&v<=1000000)return v}}
  return null;
@@ -118,7 +118,6 @@ function extractPrice(s){
 function isGenericPage(title,description,game){
  const t=String(title||'').trim(),d=String(description||'');
  const generic=/(?:交易平台|交易网|账号交易平台|游戏账号交易|游戏交易平台|账号买卖平台|首页|商品列表|账号交易网)/;
- const product=/(?:商品编号|账号编号|商品ID|账号编号[:：]?\s*[A-Z0-9]{5,}|商品编号[:：]?\s*[A-Z0-9]{5,})/i;
  return generic.test(t)||!gameMatches(t+' '+d,game);
 }
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
