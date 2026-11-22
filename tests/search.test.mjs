@@ -13,8 +13,8 @@ function runtime(){
   if(url.hostname==='api.search.brave.com'){
    const q=url.searchParams.get('q')||'';calls.push(q);
    const host=q.match(/site:([^\s]+)/)?.[1];
-   const game=q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
-   const matches=host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game?[{
+   const game=q.includes('青空测试')?'青空测试':q.includes('七条测试')?'七条测试':q.includes('三角洲')?'三角洲':q.includes('原神')||q.includes('Genshin')?'原神':q.includes('没价')?'没价':q.includes('阻断')?'阻断':null;
+   const matches=host==='gmmsj.com/h5/goods/detail'&&game==='青空测试'?[{url:'https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5',title:'G买卖-商品详情',description:'商品详情 账号'}]:host==='pzds.com'&&game==='七条测试'?Array.from({length:7},(_,i)=>({url:'https://www.pzds.com/goodsDetails/DEMO'+(i+1)+'/6',title:'七条测试账号 '+(i+1)+(i===0?' 商品售价 ¥899':''),description:'所属游戏：七条测试'})):host==='pzds.com'&&game?[{
     url:'https://www.pzds.com/goodsDetails/'+({三角洲:'TRI123',原神:'GEN123',没价:'NOP123',阻断:'BAD123'}[game])+'/6',
     title:game+'游戏账号'+(game==='没价'||game==='阻断'?'':' 商品售价 ¥899'),
     description:'所属游戏：'+game
@@ -22,6 +22,7 @@ function runtime(){
    if(host==='pzds.com'&&game==='三角洲')matches.push({url:'https://www.pzds.com/goodsDetails/WRONG123/6',title:'原神账号 商品售价 ¥100',description:'猜你喜欢三角洲'});
    return new Response(JSON.stringify({web:{results:matches}}),{status:200,headers:{'Content-Type':'application/json'}});
   }
+  if(url.hostname==='www.gmmsj.com')return new Response('<html><title>G买卖-商品详情</title><body>商品详情 可领优惠券 ￥10 ￥280.00 库存 1 账号 编号 4470004765 游戏名称 青空测试 游戏区 演示区</body></html>',{status:200,headers:{'Content-Type':'text/html'}});
   if(url.hostname==='www.pzds.com'){
    if(url.pathname.includes('BAD123'))return new Response('Access denied',{status:403});
    const game=url.pathname.includes('DEMO')?'七条测试':url.pathname.includes('GEN')?'原神':url.pathname.includes('NOP')?'没价':'三角洲';
@@ -129,4 +130,15 @@ test('modern G买卖 H5 product paths and sale price vs coupon are parsed correc
  const plans=searchPlans(resolveGame('三角洲账号'),{});
  assert.ok(plans.some(x=>x.q.includes('site:shop.5173.com')));
  assert.ok(plans.some(x=>x.q.includes('site:gmmsj.com/h5/goods/detail')));
+});
+
+test('G买卖 indexed H5 detail with generic title is verified against actual game name before display',async()=>{
+ const {worker}=runtime();
+ const response=await post(worker,'/api/search',{query:'500元以内的青空测试账号',filters:{}});
+ assert.equal(response.status,200);
+ assert.equal(response.data.candidates.length,1);
+ assert.equal(response.data.candidates[0].game,'青空测试');
+ assert.equal(response.data.candidates[0].price,280);
+ assert.ok(response.data.candidates[0].url.includes('book_id='));
+ assert.equal(response.data.candidates[0].price_evidence,'gmmsj_detail_visible_price');
 });
