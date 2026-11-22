@@ -16,14 +16,14 @@ async function verifyListing(raw){
  }catch{return {status:'unverified',message:'页面访问失败，不能确认在售'}}
 }
 
-const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号',query:'site:pzds.com/goodsDetails/ 王者荣耀 价格'},{host:'pxb7.com',platform:'螃蟹账号',query:'site:pxb7.com/seo/buy/ 王者荣耀 账号 价格'}];
-function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='pxb7.com')return /^\/(?:seo\/buy\/\d+(?:\/\d+)?|goods?\/[a-z0-9_-]+|detail\/[a-z0-9_-]+)\/?$/i.test(p);return false}
+const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
+function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='pxb7.com')return /^\/(?:seo\/buy\/\d+(?:\/\d+)?|goods?\/[a-z0-9_-]+|detail\/[a-z0-9_-]+)\/?$/i.test(p);if(domain==='5173.com'||domain==='gmmsj.com')return /\/(?:goods?|product|detail|item|sale|buy)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
 function extractPrice(s){const matches=[...s.matchAll(/(?:[¥￥]\s*|(?:售价|价格|卖价|现价|到手价)\s*[:：]?\s*)([1-9]\d{1,5})(?:\.\d{1,2})?\s*(?:元)?/g)].map(x=>Number(x[1]));return matches.length?matches[0]:null}
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],trace:[{tool:'search',result:{error:'BRAVE_SEARCH_API_KEY 未配置'}}],reason:'missing_search_key',message:'搜索服务未配置'};
  const trace=[],results=new Map(),server=filters.server==='all'?'':filters.server;
- const plans=SEARCH_DOMAINS.flatMap(d=>[d.host==='pzds.com'?'site:pzds.com/goodsDetails 王者荣耀 账号':'site:pxb7.com/seo/buy 王者荣耀 账号', 'site:'+d.host+' 王者荣耀 账号 '+(server||'苹果QQ')].map(q=>({d,q:q.trim()})));
+ const plans=SEARCH_DOMAINS.flatMap(d=>['site:'+d.host+' 王者荣耀 账号 '+(server||''),'site:'+d.host+' 王者荣耀 账号 价格 '+Math.round((filters.max_price||1000)*0.9)].map(q=>({d,q:q.trim()})));
  await Promise.all(plans.map(async({d,q})=>{
   const t=Date.now();try{
    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.searchParams.set('q',q);u.searchParams.set('count','20');u.searchParams.set('search_lang','zh-hans');u.searchParams.set('country','CN');
@@ -37,7 +37,7 @@ async function discover(query,filters,env){
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;
     const foundServer=full.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
-    const price=extractPrice(full),skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
+    if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const price=extractPrice(full),skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(full.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const realname=/不可二次实名|不可二改|不支持二次实名/.test(full)?false:/可二次实名|支持二次实名|可二改/.test(full)?true:null;
     results.set(link.href,{id:d.host+':'+id,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',status:'unverified',skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
@@ -48,13 +48,13 @@ async function discover(query,filters,env){
  const all=[...results.values()];
  // Do not silently discard unknown attributes. Instead label uncertainty and rank lower.
  for(const x of all){let score=40,reasons=[];if(server){if(x.server===server){score+=25;reasons.push('区服匹配')}else if(!x.server){score-=12;reasons.push('区服未知')}else score-=100}
- if(x.price!=null){if(x.price<=filters.max_price){score+=20;reasons.push('索引价在预算内')}else{score-=30;reasons.push('索引价超预算')}}else{score-=15;reasons.push('价格未知')}
+ if(x.price!=null){if(x.price<=filters.max_price){score+=20;reasons.push('索引价在预算内')}else if(x.price<=filters.max_price*1.1){score+=6;reasons.push('索引价略超预算（10%内）')}else{score-=35;reasons.push('索引价超出弹性预算')}}else{score-=15;reasons.push('价格未知')}
  if(filters.realname==='yes'){if(x.realname===true){score+=15;reasons.push('索引注明可二次实名')}else if(x.realname===false){score-=40;reasons.push('不满足实名条件')}else{score-=8;reasons.push('实名未知')}}
  if(x.skins!=null){score+=Math.min(12,Math.floor(x.skins/30));reasons.push('皮肤数量可提取')}
  x.match_score=Math.max(0,Math.min(100,score));x.match_reasons=reasons;x.match_level=(server&&x.server!==server)||(filters.realname==='yes'&&x.realname!==true)||(x.price===null)?'incomplete':'candidate';
  }
- all.sort((a,b)=>b.match_score-a.match_score);
- return {candidates:all.slice(0,24),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
+ all.sort((a,b)=>{const tier=x=>x.price===null?2:x.price<=filters.max_price?0:x.price<=filters.max_price*1.1?1:3;return tier(a)-tier(b)||b.match_score-a.match_score});
+ return {candidates:all.filter(x=>x.price===null||x.price<=filters.max_price*1.1).slice(0,36),trace,reason:all.length?'found':'no_detail_candidates',message:all.length?'发现公开商品线索；价格、库存与部分属性仍需核验':'未找到可识别的商品详情页；不代表市场无货'};
 }
 
 
