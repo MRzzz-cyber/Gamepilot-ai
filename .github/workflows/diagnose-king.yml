@@ -126,3 +126,27 @@ jobs:
            }catch(e){console.log('PAGE_ERROR '+url+' '+String(e?.message||e))}
           }
           NODE
+
+
+      - name: Real pzds HTML through modified full search (Brave outage simulated)
+        run: |
+          node --input-type=module <<'NODE'
+          const {readFileSync}=await import('node:fs');
+          const src=readFileSync('worker/index.js','utf8');
+          const actualFetch=fetch;
+          const mockedFetch=async (input,opts)=>{
+            const url=new URL(String(input));
+            if(url.hostname==='api.search.brave.com')return new Response(JSON.stringify({error:{detail:'Prepaid credit balance is insufficient'}}),{status:402,headers:{'Content-Type':'application/json'}});
+            return actualFetch(input,opts);
+          };
+          const api=new Function('fetch','URL','Response','AbortSignal',src.replace('export default {','const worker = {')+';return {worker,pzdsCategoryLeads}')(
+            mockedFetch,URL,Response,AbortSignal);
+          const feed=await api.pzdsCategoryLeads({name:'王者荣耀'},{});
+          console.log('OFFICIAL_FEED '+JSON.stringify({pages:feed.pages,priced:feed.priced,found:feed.items.length,first:feed.items.slice(0,4).map(x=>({title:x.title,price:x.price,server:x.server,realname:x.realname})),under_1000_apple_qq:feed.items.filter(x=>x.price<=1000&&x.server==='苹果QQ'&&x.realname===true).map(x=>({id:x.id,price:x.price}))}));
+          const response=await api.worker.fetch({url:'https://gamepilot.example/api/search',method:'POST',
+            json:async()=>({query:'1000元以内的王者荣耀苹果QQ账号，支持二次实名，皮肤越多越好',filters:{game:'王者荣耀',max_price:1000,server:'苹果QQ',realname:'yes'}})},{BRAVE_SEARCH_API_KEY:'credit_insufficient'});
+          const data=await response.json();
+          console.log('REAL_FULL_SEARCH '+JSON.stringify({status:response.status,matched:data.candidates?.length||0,unpriced:data.unpriced_leads?.length||0,excluded:data.excluded_leads?.length||0,zero_reason:data.harness?.zero_result_reason,source:data.trace?.find(x=>x.tool==='pzds_category')?.result,matched_prices:data.candidates?.slice(0,8).map(x=>({price:x.price,server:x.server,realname:x.realname,source:x.platform,title:x.title.slice(0,100)}))}));
+          if(feed.priced===0)throw Error('PZDS source prices were all missing');
+          if(!data.candidates?.length)throw Error('Strict 王者荣耀 search still returned no priced cards despite official source matches');
+          NODE
