@@ -384,9 +384,56 @@ async function gmmsjCategoryLeads(game,filters){
   return {items:[...unique.values()],diagnostic:unique.size?'ok':'no_product_links_in_html',links_found:links.length};
  }catch(e){return {items:[],diagnostic:'fetch_failed'};}
 }
+// Browser-assisted discovery from search-indexed CATEGORY pages, not random SEO pages.
+// Category URLs are selected only when the result explicitly references the requested game.
+function isMarketplaceCategoryPage(u,domain){
+ if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port||isProductPage(u,domain))return false;
+ if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\.shtml$/i.test(u.pathname);
+ if(domain==='5173.com')return /\/(?:search|list|category|game|account|shop)(?:\/|\.|$)/i.test(u.pathname)&&u.pathname.length>6;
+ return false;
+}
+function extractProductLinksFromHtml(html,source,game,domain,platform){
+ const refs=[];
+ for(const m of String(html||'').matchAll(/\b(?:href|data-href|data-url)\s*=\s*["']([^"'<>]+)["']/gi))refs.push(m[1]);
+ if(domain==='gmmsj.com'){
+  for(const m of String(html||'').matchAll(/(?:\/h5\/goods\/detail\/index\.html\?book_id=\d+[^"'\s<>]*|(?:\/dy\/\d+_zh\/)?detail_[a-z0-9]+\.shtml)/gi))refs.push(m[0]);
+ }
+ const leads=new Map();
+ for(const raw of refs){
+  let u;try{u=new URL(decodeEntities(raw),source)}catch{continue}
+  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||!isProductPage(u,domain))continue;
+  const id=u.searchParams.get('book_id')||u.pathname.split('/').filter(Boolean).at(-1);
+  if(!id||leads.has(u.href))continue;
+  leads.set(u.href,{
+   id:domain+':'+id,game:game.name,platform,url:u.href,
+   title:'源站商品详情（标题待核验）',
+   description:'由公开游戏分类页发现，游戏和价格以商品详情页为准',
+   server:null,price:null,price_evidence:'unknown',price_source_label:'未取得价格',
+   status:'unverified',game_confirmed:false,identity_pending:true,
+   skins:null,heroes:null,realname:null,
+   verification:'Browser Run 识别到商品详情链接，尚未核验商品身份和价格',
+   discovered_at:new Date().toISOString(),kind:'browser_category_lead',match_score:0,match_reasons:[]
+  });
+  if(leads.size>=12)break;
+ }
+ return [...leads.values()];
+}
+async function browserDiscoverCategory(category,game,env){
+ let u;try{u=new URL(category.url)}catch{return {items:[],status:'invalid_url'}};
+ if(!isMarketplaceCategoryPage(u,category.domain))return {items:[],status:'unsupported_category'};
+ if(typeof env?.BROWSER?.quickAction!=='function')return {items:[],status:'browser_binding_missing'};
+ try{
+  const response=await env.BROWSER.quickAction('content',{url:u.href,gotoOptions:{waitUntil:'networkidle2'}});
+  if(!response?.ok)return {items:[],status:'http_'+(response?.status||'unknown')};
+  const html=(await response.text()).slice(0,900000);
+  if(/(?:人机验证|Access Denied|Just a moment|captcha)/i.test(html.slice(0,14000)))return {items:[],status:'source_challenge'};
+  const items=extractProductLinksFromHtml(html,u.href,game,category.domain,category.platform);
+  return {items,status:items.length?'ok':'no_detail_links'};
+ }catch(e){return {items:[],status:'render_failed',error_type:String(e?.name||'unknown').slice(0,40)}}
+}
 async function discover(query,filters,env,options={}){
  // Public category feeds can still discover leads when Brave is missing or rate-limited.
- const trace=[],results=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
+ const trace=[],results=new Map(),categoryPages=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'resolve_game',result:{error:'missing_game_name'}}],reason:'missing_game_name',message:'请提供具体游戏名称，例如「找鸣潮账号」'};
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
@@ -400,7 +447,15 @@ async function discover(query,filters,env,options={}){
    if(!r.ok){let detail='';try{const err=await r.json();detail=String(err?.error?.detail||err?.detail||'').slice(0,180);const fields=err?.error?.meta?.errors;if(Array.isArray(fields))detail+=' '+fields.map(x=>String(x.loc?.join('.')||'')+': '+String(x.msg||'')).join('; ').slice(0,220)}catch{}trace.push({tool:'discover_'+d.host,query:q,result:{http_status:r.status,error_detail:detail||'upstream_error'},duration_ms:Date.now()-t});return}
    const j=await r.json();let valid=0,hostMatched=0,productMatched=0,serverRejected=0,soldRejected=0,priced=0,genericRejected=0,duplicateRejected=0;for(const hit of j.web?.results||[]){
     let link;try{link=new URL(hit.url)}catch{continue}
-    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
+    if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;
+    hostMatched++;
+    if(!isProductPage(link,d.host)){
+     const title=cleanText(hit.title),description=cleanText(hit.description);
+     if(!categoryPages.has(d.host)&&isMarketplaceCategoryPage(link,d.host)&&
+        labeledListingGame(title,description,game))categoryPages.set(d.host,{url:link.href,domain:d.host,platform:d.platform});
+     continue;
+    }
+    productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href)){duplicateRejected++;continue}
     const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}
@@ -419,6 +474,16 @@ async function discover(query,filters,env,options={}){
    trace.push({tool:'discover_'+d.host,query:q,result:{raw_results:(j.web?.results||[]).length,host_matched:hostMatched,product_url_matched:productMatched,server_rejected:serverRejected,known_sold_rejected:soldRejected,generic_rejected:genericRejected,duplicate_rejected:duplicateRejected,priced_in_snippet:priced,detail_pages:valid},duration_ms:Date.now()-t});
   }catch(e){trace.push({tool:'discover_'+d.host,query:q,result:{error:'timeout_or_network_error'},duration_ms:Date.now()-t})}
  }));}
+ if(typeof env?.BROWSER?.quickAction==='function'){
+  // Render at most one indexed category per marketplace and only when it has no direct products.
+  for(const d of SEARCH_DOMAINS.filter(x=>x.host==='5173.com'||x.host==='gmmsj.com')){
+   const category=categoryPages.get(d.host);
+   if(!category||[...results.values()].some(x=>x.platform===d.platform))continue;
+   const start=Date.now(),rendered=await browserDiscoverCategory(category,game,env);
+   let added=0;for(const lead of rendered.items){if(!results.has(lead.url)){results.set(lead.url,lead);added++}}
+   trace.push({tool:'browser_category_'+d.host,source_url:category.url,result:{status:rendered.status,detail_pages:added,rendered:true},duration_ms:Date.now()-start});
+  }
+ }
  const all=[...results.values()];
  // Do not silently discard unknown attributes. Instead label uncertainty and rank lower.
  for(const x of all){let score=40,reasons=[];if(server){if(x.server===server){score+=25;reasons.push('区服匹配')}else if(!x.server){score-=12;reasons.push('区服未知')}else score-=100}
