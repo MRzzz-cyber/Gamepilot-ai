@@ -12,20 +12,16 @@ function structuredOffers(html){
 function gmmsjDetail(html){
  const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
  const status=/(?:浏览量|收藏量)[\s\S]{0,100}?已出售/.test(body)?'sold':/(?:浏览量|收藏量)[\s\S]{0,100}?出售中/.test(body)?'listed':'unverified';
- // Mobile G买卖 pages often show the main price BEFORE the product title and metadata.
- // Require the product number or account product context, not a random price from recommendations.
  const productContext=/(?:商品详情|编号\s*\d{7,}|账号\s*\[|账号\s*【)/.test(body);
- const candidates=[];
- if(productContext){
-  const m=body.match(/(?:商品详情[\s\S]{0,350}?|库存\s*\d+[\s\S]{0,80}?)[¥￥]\s*([1-9]\d{1,6}(?:\.\d{1,2})?)/);
-  if(m)candidates.push(Number(m[1]));
-  const beforeTitle=body.match(/[¥￥]\s*([1-9]\d{1,6}(?:\.\d{1,2})?)\s*(?:库存\s*\d+\s*)?(?:账号|\[|【)/);
-  if(beforeTitle)candidates.push(Number(beforeTitle[1]));
-  const labeled=body.match(/(?:商品售价|出售价格|售价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{1,6}(?:\.\d{1,2})?)/);
-  if(labeled)candidates.push(Number(labeled[1]));
- }
- const price=candidates.find(x=>x>=10&&x<=1000000)??null;
- return {status,price,price_evidence:price!=null?'gmmsj_detail_visible_price':'unknown'};
+ if(!productContext)return {status,price:null,price_evidence:'unknown'};
+ const head=body.split(/(?:交易流程|保障类型|商品详情\s*游戏名称)/)[0].slice(0,3000);
+ // H5 header: coupon banners may show ¥10 before the actual "¥280.00 库存 1 账号".
+ const stockPrice=head.match(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)\s*库存\s*\d+\s*(?:账号|装备|游戏币|道具)/i);
+ const labeled=head.match(/(?:商品售价|出售价格|售价|一口价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/i);
+ const contextual=head.match(/[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)\s*(?:账号\s*[【\[]|账号\s+自助验货)/i);
+ const selected=stockPrice||labeled||contextual;
+ const price=selected?Number(selected[1]):null;
+ return {status,price:price!=null&&price>=10&&price<=1000000?price:null,price_evidence:price!=null?'gmmsj_detail_visible_price':'unknown'};
 }
 function extractDetailPrice(html){
  const offers=structuredOffers(html);const c=offers.find(o=>!o.currency||o.currency==='CNY');if(c)return {price:c.price,price_evidence:'detail_structured',availability:c.availability};
@@ -69,7 +65,8 @@ async function verifyListing(raw){
  if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（HTTP '+r.status+'，可能需要移动端或登录）',http_status:r.status,source_url:u.href};
  const html=(await r.text()).slice(0,500000);
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
- const gameLabel=html.match(/(?:游戏区服|所属游戏|游戏名称|游戏分类)\s*[:：]?\s*(?:<[^>]+>\s*){0,3}(王者荣耀|冒险岛M?|枫之谷|原神|和平精英|地下城与勇士|英雄联盟|永劫无间|逆水寒)/i)?.[1]||null;
+ const textBody=decodeEntities(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const gameLabel=textBody.match(/(?:所属游戏|游戏名称|游戏分类)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·_-]{2,28})/u)?.[1]||null;
  const detailGame=GAME_CATALOG.find(g=>listingGameMatches(pageTitle,'',g))?.name||(gameLabel==='枫之谷'||gameLabel==='冒险岛M'?'冒险岛':gameLabel);
  const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;const updatedAt=listingUpdatedAt(html);const stale=isStaleListing(updatedAt);
  const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格|goodsDetails|sellingPrice|salePrice|goodsPrice)/i.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
