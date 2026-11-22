@@ -54,16 +54,41 @@ function listingUpdatedAt(html){
  return Number.isFinite(date.getTime())?date.toISOString():null;
 }
 function isStaleListing(updatedAt,days=180){return !!updatedAt&&Date.now()-Date.parse(updatedAt)>days*86400000}
-async function verifyListing(raw){
+// Browser Run is a strictly bounded fallback for approved product URLs only.
+// It is NOT a proxy or a way to bypass a seller's login, CAPTCHA, or access controls.
+async function browserRenderListing(raw,env){
+ const start=Date.now();
+ let u;try{u=new URL(raw)}catch{return {ok:false,reason:'invalid_url',duration_ms:0}}
+ const domain=u.hostname.replace(/^www\./,'');
+ if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port||
+    !['5173.com','gmmsj.com'].includes(domain)||!isProductPage(u,domain))
+  return {ok:false,reason:'unsupported_listing_url',duration_ms:0};
+ if(typeof env?.BROWSER?.quickAction!=='function')
+  return {ok:false,reason:'browser_binding_missing',duration_ms:0};
+ try{
+  const response=await env.BROWSER.quickAction('content',{url:u.href,gotoOptions:{waitUntil:'networkidle2'}});
+  if(!response?.ok)return {ok:false,reason:'browser_http_error',http_status:response?.status||null,duration_ms:Date.now()-start};
+  const html=(await response.text()).slice(0,500000);
+  if(/(?:验证码|人机验证|请登录|访问被拒绝|Access Denied|Just a moment|verify you are human|captcha)/i.test(html.slice(0,15000)))
+   return {ok:false,reason:'site_challenge_or_login',duration_ms:Date.now()-start};
+  if(html.length<120)return {ok:false,reason:'rendered_html_empty',duration_ms:Date.now()-start};
+  return {ok:true,html,duration_ms:Date.now()-start};
+ }catch(e){return {ok:false,reason:'browser_render_failed',error_type:String(e?.name||'unknown').slice(0,50),duration_ms:Date.now()-start}}
+}
+async function verifyListing(raw,renderedHtml=null){
  let u;try{u=new URL(raw)}catch{return {status:'invalid_url',message:'无效商品链接'}}
  if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port)return {status:'unsupported_source',message:'不支持此域名'};
  const id=u.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||null;
  if(KNOWN_SOLD.has(id))return {status:'sold',message:'已知售出商品，排除推荐',source_url:u.href,verified_at:null,price:null};
  try{
- const r=await fetch(u.href,{redirect:'follow',signal:AbortSignal.timeout(8500),headers:{Accept:'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0; +public-product-verification)'}});
- const contentType=r.headers.get('content-type')||'';
- if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（HTTP '+r.status+'，可能需要移动端或登录）',http_status:r.status,source_url:u.href};
- const html=(await r.text()).slice(0,500000);
+ let html;
+ if(renderedHtml!==null){html=String(renderedHtml).slice(0,500000)}
+ else {
+  const r=await fetch(u.href,{redirect:'follow',signal:AbortSignal.timeout(8500),headers:{Accept:'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0; +public-product-verification)'}});
+  const contentType=r.headers.get('content-type')||'';
+  if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（HTTP '+r.status+'，可能需要移动端或登录）',http_status:r.status,source_url:u.href};
+  html=(await r.text()).slice(0,500000);
+ }
  const pageTitle=decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').slice(0,180);
  const textBody=decodeEntities(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
  const gameLabel=textBody.match(/(?:所属游戏|游戏名称|游戏分类)\s*[:：]?\s*([\p{Script=Han}A-Za-z0-9·_-]{2,28})/u)?.[1]||null;
@@ -73,16 +98,49 @@ async function verifyListing(raw){
  // Search only the page title and explicit structured availability for strong sold evidence.
  const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
  const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
- return {status:sold?'sold':stale?'stale':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':stale?'商品最后更新超过180天，不能作为当前可售报价':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',updated_at:updatedAt,detail_game:detailGame,price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:'公开HTML与结构化商品数据',page_title:pageTitle};
+ return {status:sold?'sold':stale?'stale':live?'listed':'unverified',message:sold?'详情页明确显示售出或下架':stale?'商品最后更新超过180天，不能作为当前可售报价':live?'结构化库存标记为 InStock，尚未核验交易可完成':'页面可访问，但未找到可信的在售证据',updated_at:updatedAt,detail_game:detailGame,price:gmmsj?.price??detail.price??visible.price,price_evidence:gmmsj?.price!=null?gmmsj.price_evidence:detail.price!=null?detail.price_evidence:visible.price_evidence,availability_evidence:detail.availability||null,source_url:u.href,checked_at:new Date().toISOString(),verification_method:renderedHtml!==null?'Cloudflare Browser Run rendered HTML':'公开HTML与结构化商品数据',page_title:pageTitle};
  }catch(e){return {status:'unverified',message:'详情页访问超时或受限',fetch_error:String(e?.name||'network_error'),source_url:u.href,price:null}}
 }
-async function enrichCandidates(candidates){
+async function enrichCandidates(candidates,env,trace=[]){
  // Verify unpriced leads first: these are the listings where a detail fetch can create a new price.
  // Round-robin across platforms so a single site's results cannot exhaust verification capacity.
  const byPlatform=new Map();for(const x of candidates){if(!byPlatform.has(x.platform))byPlatform.set(x.platform,[]);byPlatform.get(x.platform).push(x)}
  for(const xs of byPlatform.values())xs.sort((a,b)=>Number(a.price!=null)-Number(b.price!=null));
  const queue=[];while(queue.length<15){let added=false;for(const xs of byPlatform.values()){if(xs.length&&queue.length<15){queue.push(xs.shift());added=true}}if(!added)break}
  const checks=new Map();for(let i=0;i<queue.length;i+=15){const batch=queue.slice(i,i+15);const outcomes=await Promise.all(batch.map(x=>verifyListing(x.url)));batch.forEach((x,j)=>checks.set(x.url,outcomes[j]))}
+ // At most two Browser Run sessions per search; prioritize price gaps from the marketplaces.
+ // Static HTML remains primary, keeping a fast path for the majority of requests.
+ const renderingCandidates=queue.filter(x=>{
+  const domain=new URL(x.url).hostname.replace(/^www\./,'');
+  const result=checks.get(x.url);
+  return ['5173.com','gmmsj.com'].includes(domain)&&result&&!['sold','stale','wrong_game'].includes(result.status)&&
+   (result.price==null||result.http_status!=null);
+ }).slice(0,2);
+ if(typeof env?.BROWSER?.quickAction!=='function'){
+  trace.push({tool:'browser_render_summary',result:{configured:false,attempted:0,recovered_prices:0,reason:'browser_binding_missing'}});
+ }else{
+  let recovered=0,success=0;
+  for(const candidate of renderingCandidates){
+   const rendered=await browserRenderListing(candidate.url,env);
+   if(rendered.ok){
+    success++;
+    const checked=await verifyListing(candidate.url,rendered.html);
+    // Trust rendered HTML only when the page is still recognizably a product.
+    // A challenge / unrelated page can never erase an existing static result.
+    if(checked.price!=null||checked.detail_game||checked.status==='sold'){
+     checks.set(candidate.url,{...checked,browser_rendered:true,browser_duration_ms:rendered.duration_ms});
+     if(checked.price!=null)recovered++;
+    }
+   }
+   trace.push({tool:'browser_render_detail',source:candidate.platform,result:{
+    ok:rendered.ok,reason:rendered.ok?'rendered':rendered.reason,
+    recovered_price:rendered.ok&&checks.get(candidate.url)?.browser_rendered===true&&checks.get(candidate.url)?.price!=null,
+    http_status:rendered.http_status??null
+   },duration_ms:rendered.duration_ms});
+  }
+  trace.push({tool:'browser_render_summary',result:{configured:true,attempted:renderingCandidates.length,succeeded:success,recovered_prices:recovered}});
+ }
+
  return candidates.map(x=>{
   const v=checks.get(x.url);
   if(!v)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
@@ -433,8 +491,10 @@ async function agentSearchListings(query,args,env){
   discovery={...discovery,candidates:[...unique.values()],trace:[...discovery.trace,...retry.trace]};
   stages.push({stage:'discover_fallback',count:retry.candidates.length,requests:retry.trace.filter(t=>t.tool.startsWith('discover_')).length});
  }
- const enriched=await enrichCandidates(discovery.candidates);
+ const enriched=await enrichCandidates(discovery.candidates,env,discovery.trace);
  stages.push({stage:'verify_details',count:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length});
+ const browserSummary=discovery.trace.findLast(t=>t.tool==='browser_render_summary')?.result||{configured:false,attempted:0,recovered_prices:0};
+ stages.push({stage:'browser_render',count:browserSummary.attempted,priced:browserSummary.recovered_prices,configured:browserSummary.configured});
  // Preserve unknown-edition leads for diagnostics; do not silently treat CN accounts as TMS/GMS.
  const editionSafe=enriched.filter(x=>!x.detail_game||x.detail_game===game?.name); // DEMO: version is not a hard filter.
  const editionRejected=enriched.length-editionSafe.length;
@@ -490,7 +550,7 @@ async function agentSearchListings(query,args,env){
   excluded_leads:excludedLeads,
   audit_counts:{discovered:enriched.length,qualified:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}
  };
- const searchDiagnostics={...detailDiagnostics,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
+ const searchDiagnostics={...detailDiagnostics,browser:browserSummary,configured:!!env.BRAVE_SEARCH_API_KEY,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length,upstream_errors:discovery.trace.filter(t=>t.result?.http_status>=400||t.result?.error).length,raw_search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),identity_matched:discovery.candidates.length,detail_checked:enriched.filter(x=>x.detail_check&&x.detail_check!=='not_checked').length,priced:enriched.filter(x=>x.price!=null).length,qualified:items.length};
  return {items,unpriced_leads:unpricedLeads,excluded_leads:excludedLeads,lead_audit:detailDiagnostics.audit_counts,harness:{version:'progressive-search-v1',stages,attempts:stages.filter(x=>x.stage.startsWith('discover_')).length,zero_result_reason:items.length?null:!env.BRAVE_SEARCH_API_KEY?'search_not_configured':!discovery.candidates.length?'no_product_leads':!enriched.some(x=>x.price!=null)?'no_price_evidence':!editionSafe.length?'edition_evidence_missing':'constraints_or_identity_not_verified'},search_diagnostics:searchDiagnostics,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),discovery_reason:discovery.reason,discovered_count:discovery.candidates.length,priced_count:enriched.filter(x=>x.price!=null).length,edition_rejected_count:editionRejected,search_error_count:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).length,search_error_samples:discovery.trace.filter(x=>x.result?.http_status>=400||x.result?.error).slice(0,3).map(x=>({source:x.tool,status:x.result?.http_status,detail:x.result?.error_detail||x.result?.error})),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
@@ -507,7 +567,7 @@ async function watchPrice(raw,env){
  if(env.PRICE_HISTORY&&current){try{history.push(current);await env.PRICE_HISTORY.put(key,JSON.stringify(history.slice(-30)),{expirationTtl:60*60*24*90})}catch{return {url:u.href,current,previous,change,history_saved:false,warning:'历史价格保存失败',status:checked.status}}}
  return {url:u.href,current,previous,change,history_saved:!!env.PRICE_HISTORY&&!!current,history_points:history.length,availability:checked.status,updated_at:checked.updated_at||null,warning:!validPrice?'当前详情页无可信价格，或商品已售出/过期；不生成价格变化':!env.PRICE_HISTORY?'未绑定 PRICE_HISTORY KV，当前仅支持即时价格检查':'历史价格为此前检查时的快照，并非连续实时监控'};
 }
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-search-audit-v1',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-browser-run-v1',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
  const cases=[
   ['帮我找一个鸣潮账号 2000元以内','鸣潮'],
   ['搜索《崩坏：星穹铁道》账号 1500元以内','崩坏：星穹铁道'],
