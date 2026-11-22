@@ -400,7 +400,13 @@ function extractProductLinksFromHtml(html,source,game,domain,platform){
  }
  const leads=new Map();
  for(const raw of refs){
-  let u;try{u=new URL(decodeEntities(raw),source)}catch{continue}
+  let u;try{
+   let href=decodeEntities(raw);
+   const categoryPath=new URL(source).pathname;
+   if(/^detail_[a-z0-9]+\.shtml/i.test(href)&&/^\/dy\/\d+_zh\.shtml$/i.test(categoryPath))
+    href=categoryPath.replace(/\.shtml$/i,'/')+href;
+   u=new URL(href,source);
+  }catch{continue}
   if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||!isProductPage(u,domain))continue;
   const id=u.searchParams.get('book_id')||u.pathname.split('/').filter(Boolean).at(-1);
   if(!id||leads.has(u.href))continue;
