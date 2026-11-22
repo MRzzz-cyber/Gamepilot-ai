@@ -153,7 +153,7 @@ function requirements(query,filters,game){
  if(/装备好|装备强|毕业装备/.test(q))soft.push('装备好');
  if(/皮肤多|皮肤越多/.test(q))soft.push('皮肤多');
  if(/高等级|等级高/.test(q))soft.push('等级高');
- const profession=q.match(/(?:职业|职阶)\s*[:：为是]?\s*(弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1];
+ const profession=q.match(/(?:职业|职阶)\s*[:：为是]?\s*(黑骑士|剑刃舞者|弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1]||filters.profession;
  if(profession)hard.push({field:'profession',value:profession});
  return {game:game.name,hard,soft,budget,flex_budget:Math.round(budget*1.3),price_policy:'只比较有明确价格证据的候选；索引价格非实时',inventory_policy:'未核验在售不得宣称可购买'};
 }
@@ -311,8 +311,8 @@ async function agentSearchListings(query,args,env){
  const discovery=await discover(query,filters,env);
  const enriched=await enrichCandidates(discovery.candidates);
  const req=game?requirements(query,filters,game):null;
- const items=enriched.map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.status!=='wrong_game'&&x.status!=='wrong_game'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
- return {items,coverage:coverageReport(enriched,discovery.trace),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
+ const items=enriched.map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null})).filter(x=>x.price!=null&&x.status!=='sold'&&x.status!=='stale'&&x.status!=='wrong_game'&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0)).slice(0,20).map(x=>({id:x.id,title:x.title,platform:x.platform,url:x.url,price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,status:x.status,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,score:x.requirement_evaluation?.score??null}));
+ return {items,trace:discovery.trace,coverage:coverageReport(enriched,discovery.trace),note:'仅展示具有明确报价证据的候选；价格和库存可能已变化，未核验属性不得宣称满足要求'};
 }
 // On-demand price watch. Bind Cloudflare KV as PRICE_HISTORY to persist snapshots.
 async function watchPrice(raw,env){
@@ -338,10 +338,10 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
   try{
    const result=await agentSearchListings(searchPrompt,{version:clarification.requirements.version,max_price:clarification.requirements.max_price||100000,profession:clarification.requirements.profession},env);
    const count=result.items?.length||0;
-   return json({answer:count?'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索到 '+count+' 条商品线索；请逐项核实价格与在售状态。':'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索，但尚未取得符合条件且有价格的商品。可以调整预算或职业继续搜索。',requirements:clarification.requirements,items:result.items||[],trace:result.trace||[],status:'searched',search_completed:true});
+   return json({answer:count?'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索到 '+count+' 条商品线索；请逐项核实价格与在售状态。':'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索，但尚未取得符合条件且有价格的商品。可以调整预算或职业继续搜索。',requirements:clarification.requirements,items:result.items||[],trace:result.trace||[],coverage:result.coverage||null,status:'searched',search_completed:true});
   }catch(e){return json({error:'商品搜索失败',details:String(e?.message||e).slice(0,160),requirements:clarification.requirements},502)}
  }
- const requested=String(body.model||'').slice(0,150);
+ if(!env.OPENROUTER_API_KEY)return json({error:'非冒险岛对话分析需要配置 OPENROUTER_API_KEY'},503);const requested=String(body.model||'').slice(0,150);
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
  const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);coverage.search_diagnostics={requests:discovery.trace.length,http_errors:discovery.trace.filter(t=>t.result?.http_status).length,search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),generic_rejected:discovery.trace.reduce((n,t)=>n+(t.result?.generic_rejected||0),0),duplicates:discovery.trace.reduce((n,t)=>n+(t.result?.duplicate_rejected||0),0),snippet_priced:discovery.trace.reduce((n,t)=>n+(t.result?.priced_in_snippet||0),0)};const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.status!=='stale'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
  const noteMap=new Map(); // Disable freeform per-item AI claims until attribute-level evidence checks are implemented.
@@ -349,7 +349,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  return json({items:[],candidates,coverage,requirements:req,rejected_count:evaluated.filter(x=>x.requirement_evaluation?.fit==='rejected').length,discovery_status:discovery.reason,filters,summary:discovery.message,agent:{status:ai.status,model:ai.model,usage:ai.usage,summary:ai.summary,reason:ai.reason},trace:[...discovery.trace,{tool:'detail_verification',result:coverage.totals},{tool:'agent_review',mode:'OpenRouter 真实调用',result:{status:ai.status,model:ai.model,reviewed:ai.notes?.length||0,reason:ai.reason}}]});
 }
 
-if(url.pathname==='/api/chat'&&request.method==='POST'){if(!env.OPENROUTER_API_KEY)return json({error:'尚未配置 OPENROUTER_API_KEY；基础搜索和比较仍可使用'},503);let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);
+if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);
  // Reconstruct requirements from prior chat turns when the UI sends history instead of a separate context object.
  const history=Array.isArray(body.history)?body.history.slice(-16):Array.isArray(body.messages)?body.messages.slice(-16):[];
  let prior={...(body.context||{}),...(body.requirements||{})};
