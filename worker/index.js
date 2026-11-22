@@ -118,8 +118,7 @@ function detectGame(q){const text=String(q||'').toLowerCase();return GAME_CATALO
 // Universal fallback: extract a game title from an explicit purchase request.
 // No fabricated catalog entries; ambiguous messages still require clarification.
 function resolveGame(query,filters={}){
- const known=detectGame(query)||GAME_CATALOG.find(g=>g.name===filters.game);
- if(!known&&typeof filters.game==='string'&&filters.game.trim().length>=2)return {name:filters.game.trim(),aliases:[filters.game.trim()],server:false,universal:true};
+ const known=detectGame(query);
  if(known)return known;
  const text=String(query||'').trim();
  const quoted=text.match(/[《「]([^》」]{2,36})[》」]/u);
@@ -130,8 +129,8 @@ function resolveGame(query,filters={}){
  clean=clean.replace(/^(?:(?:请|麻烦|可以|能不能|帮我|给我|我想|我需要|我要|想要|需要|推荐|搜索|找|买|购买|看看|求购|一下|一个|一些|个|便宜的|合适的|的)\s*)+/,'').trim();
  clean=clean.replace(/^(?:的\s*)+/,'').replace(/(?:游戏|的)\s*$/,'').trim();
  if(quoted)clean=quoted[1].trim();
- if(!/(?:账号|帐号|游戏号|成品号|账户|买号)/.test(text)&&!quoted)return null;
- if(clean.length<2||clean.length>35||/\d{2,7}\s*(?:元|块)|^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(clean))return null;
+ if(!/(?:账号|帐号|游戏号|成品号|账户|买号)/.test(text)&&!quoted){const fallback=String(filters.game||'').trim();return fallback?{name:fallback,aliases:[fallback],server:false,universal:true}:null;}
+ if(clean.length<2||clean.length>35||/\d{2,7}\s*(?:元|块)|^(?:游戏|一个|便宜|高战力|高等级|苹果QQ|安卓QQ|账号)$/.test(clean)){const fallback=String(filters.game||'').trim();return fallback?{name:fallback,aliases:[fallback],server:false,universal:true}:null;}
  return {name:clean,aliases:[clean],server:false,universal:true};
 }
 function gameMatches(text,game){const t=String(text||'').toLowerCase();return game.aliases.some(a=>t.includes(a.toLowerCase()))}
@@ -410,7 +409,7 @@ function clarifyGeneralGame(message,context={}){
 // Shared evidence-grounded listing pipeline for chat tool calls.
 async function agentSearchListings(query,args,env){
  const parsed=parse(query),game=resolveGame(query,args);
- const filters={...parsed,...args,version:null,requested_version:args?.version||String(query).match(/(?:手游版|国际服|台服／枫之谷|国服)/)?.[0]||null,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
+ const filters={...parsed,...args,game:game?.name||parsed.game,version:null,requested_version:args?.version||String(query).match(/(?:手游版|国际服|台服／枫之谷|国服)/)?.[0]||null,max_price:Number(args?.max_price)>0?Number(args.max_price):parsed.max_price,server:args?.server&&args.server!=='all'?args.server:parsed.server,realname:args?.realname&&args.realname!=='all'?args.realname:parsed.realname};
  let discovery=await discover(query,filters,env);
  const stages=[{stage:'discover_primary',count:discovery.candidates.length,requests:discovery.trace.filter(t=>t.tool.startsWith('discover_')).length}];
  if((discovery.candidates.length===0||!discovery.candidates.some(x=>x.price!=null))&&env.BRAVE_SEARCH_API_KEY){
@@ -470,6 +469,9 @@ if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await 
  const history=Array.isArray(body.history)?body.history.slice(-16):Array.isArray(body.messages)?body.messages.slice(-16):[];
  let prior={...(body.context||{}),...(body.requirements||{})};
  for(const turn of history){const content=typeof turn==='string'?turn:String(turn?.content||turn?.message||'');if(!content||turn?.role==='assistant')continue;const update=clarifyGameEdition(content,prior)||clarifyGeneralGame(content,prior);if(update?.requirements)prior={...prior,...update.requirements}}
+ // New explicit game requests start a fresh search context; only follow-ups inherit prior game.
+ const explicitGame=resolveGame(prompt,{});
+ if(explicitGame&&prior.game&&explicitGame.name!==prior.game)prior={game:explicitGame.name};
  const clarification=clarifyGameEdition(prompt,prior)||clarifyGeneralGame(prompt,prior);
  if(clarification?.needs_clarification)return json({answer:clarification.question,clarification,requirements:clarification.requirements,items:[],trace:[],status:'needs_clarification',suggested_replies:clarification.options||[]});
  // Deterministic Progressive Search Harness: retrieval must not depend on model tool-call decisions.
