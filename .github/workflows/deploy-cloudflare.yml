@@ -47,7 +47,7 @@ jobs:
           const acceptance=await response.json();
           console.log('PRODUCTION_ACCEPTANCE',JSON.stringify({passed:acceptance.passed,category_priced:acceptance.category_priced,unique_product_links:acceptance.unique_product_links,details:acceptance.detail_samples?.map(x=>({game:x.detail_game,price:x.price,status:x.status}))}));
           if(!acceptance.passed||acceptance.category_priced<1)throw Error('Live G买卖 category prices or game identity failed verification');
-          const sr=await fetch(base+'/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:'2000元以内冒险岛账号',filters:{}}),signal:AbortSignal.timeout(95000)});
+          const sr=await fetch(base+'/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:'2000元以内冒险岛账号',filters:{},disable_brave:true}),signal:AbortSignal.timeout(95000)});
           if(!sr.ok)throw Error('search_http_'+sr.status);
           const data=await sr.json();
           const priced=(data.items||[]).filter(x=>x.platform==='G买卖'&&Number(x.price)>0);
