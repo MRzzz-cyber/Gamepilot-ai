@@ -177,21 +177,22 @@ function evaluateCandidate(x,req){
 function searchPlans(game,filters){
  const budget=Math.max(1,Number(filters.max_price)||1000);
  const server=game.server&&filters.server!=='all'?filters.server:'';
+ const edition=game.name==='冒险岛'?({'国际服':'冒险岛 国际服 GMS','台服／枫之谷':'枫之谷 台服 TMS','手游版':'冒险岛M','国服':'冒险岛 国服'}[filters.version]||game.name):game.name;
  const focused=game.name==='王者荣耀'
   ? [game.name+' '+(server||'苹果QQ')+' 账号',game.name+' '+(server||'苹果QQ')+' 皮肤',game.name+' 二次实名 账号']
   : game.name==='冒险岛'
-  ? [game.name+' 成品号',game.name+' 角色 账号',game.name+' 弓箭手 账号']
+  ? [edition+' 成品号',edition+' 账号 出售',edition+' '+(filters.profession||'角色')+' 账号']
   : [game.name+' 成品号',game.name+' 账号 售价',game.name+' 角色 出售'];
  return SEARCH_DOMAINS.filter(d=>d.enabled!==false).flatMap(d=>{
   const detailPath=d.host==='pzds.com'?'inurl:goodsDetails':d.host==='gmmsj.com'?'inurl:detail_':'';
   // Put product-page-focused searches first; only the first six plans per platform are executed.
   const terms=[
-   detailPath+' '+game.name+' '+(server||'账号'),
-   detailPath+' '+game.name+' 售价',
+   detailPath+' '+edition+' '+(server||'账号'),
+   detailPath+' '+edition+' 售价',
    ...focused,
-   game.name+' 商品编号',
-   game.name+' 账号 出售',
-   game.name+' 账号 '+Math.round(budget*0.8)+'元'
+   edition+' 商品编号',
+   edition+' 账号 出售',
+   edition+' 账号 '+Math.round(budget*0.8)+'元'
   ];
   return [...new Set(terms.map(x=>x.trim()))].map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i}));
  });
@@ -296,11 +297,11 @@ function clarifyGameEdition(message,context={}){
  if(!game||game.name!=='冒险岛')return null;
  const version=/(?:冒险岛M|MapleStory\s*M|手游版|手机版)/i.test(text)?'手游版':/(?:国际服|Global|GMS)/i.test(text)?'国际服':/(?:台服|枫之谷|TMS)/i.test(text)?'台服／枫之谷':/(?:国服|盛趣)/i.test(text)?'国服':context.version||null;
  const budgetMatch=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
- const bareBudget=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);const budget=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):bareBudget?Number(bareBudget[1]):context.max_price||null;
+ const bareBudget=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);const budget=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):bareBudget?Number(bareBudget[1]):/不限预算|先看看价格|不知道预算/.test(text)?0:context.max_price??null;
  const profession=text.match(/(?:黑骑士|剑刃舞者|弓箭手|夜使者|主教|双弩精灵|法师|战士|飞侠)/)?.[0]||context.profession||null;
  const preferences=[...new Set([...(Array.isArray(context.preferences)?context.preferences:[]),...(/等级越高|高等级/.test(text)?['等级越高越好']:[]),...(/装备越好|毕业装备|装备好/.test(text)?['装备越好越好']:[])])];const requirements={game:'冒险岛',version,max_price:budget,profession,preferences};
- if(!version)return {needs_clarification:true,requirements,question:'你想找哪个版本的冒险岛账号？例如国服、国际服（GMS）、台服／枫之谷（TMS），还是冒险岛M手游？不同版本的账号不能混在一起比价。',options:['国服','国际服（GMS）','台服／枫之谷（TMS）','冒险岛M手游']};
- if(!budget)return {needs_clarification:true,requirements,question:'确定了版本。你的账号预算大概是多少？也可以补充职业、等级和装备要求。'};
+ if(!version)return {needs_clarification:true,requirements,question:'先确认冒险岛版本：国服、国际服（GMS）、台服／枫之谷（TMS）还是冒险岛M？'+(!budget?' 也可以一起告诉我预算。':''),options:['国服','国际服（GMS）','台服／枫之谷（TMS）','冒险岛M手游']};
+ if(budget===null)return {needs_clarification:true,requirements,question:'已确认'+version+'。预算大约多少？直接回复数字即可；不确定也可以回复「不限预算」，我会先搜索真实商品价格。',options:['1000','3000','5000','不限预算']};
  return {needs_clarification:false,requirements};
 }
 // Shared evidence-grounded listing pipeline for chat tool calls.
@@ -335,7 +336,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  // Once edition and budget are known, search deterministically rather than waiting for an LLM tool decision.
  if(clarification&&!clarification.needs_clarification){
   try{
-   const result=await agentSearchListings(searchPrompt,{version:clarification.requirements.version,max_price:clarification.requirements.max_price},env);
+   const result=await agentSearchListings(searchPrompt,{version:clarification.requirements.version,max_price:clarification.requirements.max_price||100000,profession:clarification.requirements.profession},env);
    const count=result.items?.length||0;
    return json({answer:count?'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索到 '+count+' 条商品线索；请逐项核实价格与在售状态。':'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索，但尚未取得符合条件且有价格的商品。可以调整预算或职业继续搜索。',requirements:clarification.requirements,items:result.items||[],trace:result.trace||[],status:'searched',search_completed:true});
   }catch(e){return json({error:'商品搜索失败',details:String(e?.message||e).slice(0,160),requirements:clarification.requirements},502)}
@@ -355,7 +356,7 @@ if(url.pathname==='/api/chat'&&request.method==='POST'){if(!env.OPENROUTER_API_K
  for(const turn of history){const content=typeof turn==='string'?turn:String(turn?.content||turn?.message||'');if(!content||turn?.role==='assistant')continue;const update=clarifyGameEdition(content,prior);if(update?.requirements)prior={...prior,...update.requirements}}
  const clarification=clarifyGameEdition(prompt,prior);
  if(clarification?.needs_clarification)return json({answer:clarification.question,clarification,requirements:clarification.requirements,items:[],trace:[],status:'needs_clarification',suggested_replies:clarification.options||[]});
- const searchPrompt=clarification?.requirements?.version?('冒险岛 '+clarification.requirements.version+' 预算'+clarification.requirements.max_price+'元 '+(clarification.requirements.profession||'')+' '+(clarification.requirements.preferences||[]).join(' ')+' '+prompt):prompt;const requested=String(body.model||'').slice(0,150);const available=await listModels(env);const model=requested&&available.models.some(x=>x.id===requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;const messages=[{role:'system',content:'你是GamePilot游戏账号购买决策Agent。遇到版本不明确的游戏必须先澄清，严禁混合不同版本商品。必须先调用search_listings获取商品；可能找到搜索索引候选，但未核验在售，禁止将索引候选称为可购买商品；禁止编造商品、价格或实时库存。不要编造商品、价格、服务费、账号同一性。仅比较相似账号；不同区服不得判定同款。回复简洁中文，说明来源和交易风险。不可执行支付。'}, {role:'user',content:searchPrompt}];const trace=[];let answer='';let usage={};let items=[];try{for(let step=0;step<4;step++){const start=Date.now();const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+env.OPENROUTER_API_KEY,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:step===0?'required':'auto',temperature:0.1}),signal:AbortSignal.timeout(20000)});if(!response.ok)return json({error:'模型服务返回 '+response.status,details:(await response.text()).slice(0,180)},502);const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return json({error:'模型没有返回消息'},502);messages.push(msg);if(!msg.tool_calls?.length){answer=msg.content||'分析完成';break}for(const call of msg.tool_calls.slice(0,5)){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{}let result;
+ const searchPrompt=clarification?.requirements?.version?('冒险岛 '+clarification.requirements.version+' '+(clarification.requirements.max_price?'预算'+clarification.requirements.max_price+'元 ':'不限预算 ')+(clarification.requirements.profession||'')+' '+(clarification.requirements.preferences||[]).join(' ')+' '+prompt):prompt;const requested=String(body.model||'').slice(0,150);const available=await listModels(env);const model=requested&&available.models.some(x=>x.id===requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;const messages=[{role:'system',content:'你是GamePilot游戏账号购买决策Agent。遇到版本不明确的游戏必须先澄清，严禁混合不同版本商品。必须先调用search_listings获取商品；可能找到搜索索引候选，但未核验在售，禁止将索引候选称为可购买商品；禁止编造商品、价格或实时库存。不要编造商品、价格、服务费、账号同一性。仅比较相似账号；不同区服不得判定同款。回复简洁中文，说明来源和交易风险。不可执行支付。'}, {role:'user',content:searchPrompt}];const trace=[];let answer='';let usage={};let items=[];try{for(let step=0;step<4;step++){const start=Date.now();const response=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+env.OPENROUTER_API_KEY,'Content-Type':'application/json','HTTP-Referer':url.origin,'X-Title':'GamePilot AI'},body:JSON.stringify({model,messages,tools,tool_choice:step===0?'required':'auto',temperature:0.1}),signal:AbortSignal.timeout(20000)});if(!response.ok)return json({error:'模型服务返回 '+response.status,details:(await response.text()).slice(0,180)},502);const data=await response.json();usage=data.usage||usage;const msg=data.choices?.[0]?.message;if(!msg)return json({error:'模型没有返回消息'},502);messages.push(msg);if(!msg.tool_calls?.length){answer=msg.content||'分析完成';break}for(const call of msg.tool_calls.slice(0,5)){let args={};try{args=JSON.parse(call.function.arguments||'{}')}catch{}let result;
  if(call.function.name==='search_listings'){result=await agentSearchListings(searchPrompt,{...args,version:clarification?.requirements?.version||args.version},env);items=result.items||[]}
  else if(call.function.name==='compare_prices'){const ids=Array.isArray(args.ids)?args.ids:[];result=ids.map(id=>{const x=items.find(v=>v.id===id);return x?{id,platform:x.platform,price_cny:x.price,price_evidence:x.price_evidence,source_url:x.url,fees:'unknown',total_price:'unknown',status:x.status}:{id,error:'商品不在本轮真实搜索结果中'}})}
  else if(call.function.name==='check_risks'){const ids=Array.isArray(args.ids)?args.ids:[];result=ids.map(id=>{const x=items.find(v=>v.id===id);return x?{id,realname:x.realname,stock_status:x.status,warning:x.realname===true?'索引声称可二次实名，仍需源站确认':'实名条件未核验，谨慎交易',source_url:x.url}:{id,error:'商品不在本轮真实搜索结果中'}})}
