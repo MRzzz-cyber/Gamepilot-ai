@@ -93,3 +93,12 @@ type ProductEvidence = {game: string | null; price: number | null; currency: 'CN
 5. 如果 Browser Run 报错，检查 `browser_render_summary` 和 `browser_render_detail` 的 `reason`。`site_challenge_or_login` 等状态需要授权或合作接口，不能靠重试绕过。
 
 测试：`npm run check`。其中 Browser Run 测试为 Mock，覆盖无绑定、HTTP 403 后渲染恢复价格、G买卖游戏分类页提取链接。真实线上验收应独立进行。
+
+### 2026-11-23：G买卖列表卡片标价恢复
+
+- 原因：公开冒险岛列表页虽然有商品卡片价格，但 discovery 只抓 URL，固定保存 `price:null`；每轮自动详情核验上限 15 条，且详情页可能返回 403，导致大量商品显示 `¥—`。
+- 修复：只从包裹**同一商品 ID**的独立 HTML 卡片中提取标价；优惠券、重复/冲突价格和跨商品卡片价格不采信；详情核验成功时以详情价优先，已售/过期商品仍排除。
+- 价格证据：`gmmsj_category_visible_price` 为**源站列表参考价（非实时）**，与 `gmmsj_detail_visible_price`（商品详情价）和 `search_snippet`（搜索引擎索引）区别展示，不保证实时在售。
+- G买卖传统详情页主价可能出现在「保障类型」和「商品类别」之后；解析器不再过早截断正文，且只采信商品区域中无歧义的售价。
+- 新回归测试：同卡片价格、优惠券识别、相邻商品隔离、无价格保护、详情页价、源站403时仍保留带来源的列表价。
+- **仍需线上验证**：Cloudflare Workers 已部署版本及第三方源站的真实 HTML 结构、实时库存状态，不能用 Mock 测试推断已经上线。
