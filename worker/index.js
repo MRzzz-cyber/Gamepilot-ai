@@ -296,7 +296,7 @@ function clarifyGameEdition(message,context={}){
  if(!game||game.name!=='冒险岛')return null;
  const version=/(?:冒险岛M|MapleStory\s*M|手游版|手机版)/i.test(text)?'手游版':/(?:国际服|Global|GMS)/i.test(text)?'国际服':/(?:台服|枫之谷|TMS)/i.test(text)?'台服／枫之谷':/(?:国服|盛趣)/i.test(text)?'国服':context.version||null;
  const budgetMatch=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
- const budget=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):context.max_price||null;
+ const bareBudget=text.trim().match(/^[¥￥]?\s*(\d{2,7})\s*$/);const budget=budgetMatch?Number(budgetMatch[1]||budgetMatch[2]):bareBudget?Number(bareBudget[1]):context.max_price||null;
  const profession=text.match(/(?:黑骑士|剑刃舞者|弓箭手|夜使者|主教|双弩精灵|法师|战士|飞侠)/)?.[0]||context.profession||null;
  const preferences=[...new Set([...(Array.isArray(context.preferences)?context.preferences:[]),...(/等级越高|高等级/.test(text)?['等级越高越好']:[]),...(/装备越好|毕业装备|装备好/.test(text)?['装备越好越好']:[])])];const requirements={game:'冒险岛',version,max_price:budget,profession,preferences};
  if(!version)return {needs_clarification:true,requirements,question:'你想找哪个版本的冒险岛账号？例如国服、国际服（GMS）、台服／枫之谷（TMS），还是冒险岛M手游？不同版本的账号不能混在一起比价。',options:['国服','国际服（GMS）','台服／枫之谷（TMS）','冒险岛M手游']};
@@ -332,6 +332,14 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  const query=String(body.query||'').slice(0,1000),parsed=parse(query),incoming=body.filters||{};
  const filters={...parsed,...incoming,server:incoming.server&&incoming.server!=='all'?incoming.server:parsed.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsed.realname,max_price:Number(incoming.max_price)>0?Number(incoming.max_price):parsed.max_price};
  const game=detectGame(query);const req=game?requirements(query,filters,game):null;const discovery=await discover(query,filters,env);
+ // Once edition and budget are known, search deterministically rather than waiting for an LLM tool decision.
+ if(clarification&&!clarification.needs_clarification){
+  try{
+   const result=await agentSearchListings(searchPrompt,{version:clarification.requirements.version,max_price:clarification.requirements.max_price},env);
+   const count=result.items?.length||0;
+   return json({answer:count?'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索到 '+count+' 条商品线索；请逐项核实价格与在售状态。':'已按'+clarification.requirements.version+'和预算 ¥'+clarification.requirements.max_price+' 搜索，但尚未取得符合条件且有价格的商品。可以调整预算或职业继续搜索。',requirements:clarification.requirements,items:result.items||[],trace:result.trace||[],status:'searched',search_completed:true});
+  }catch(e){return json({error:'商品搜索失败',details:String(e?.message||e).slice(0,160),requirements:clarification.requirements},502)}
+ }
  const requested=String(body.model||'').slice(0,150);
  const model=requested&&/^[a-z0-9._-]+\/[a-z0-9._:/-]+$/i.test(requested)?requested:env.OPENROUTER_MODEL||DEFAULT_MODEL;
  const enriched=await enrichCandidates(discovery.candidates);const coverage=coverageReport(enriched,discovery.trace);coverage.search_diagnostics={requests:discovery.trace.length,http_errors:discovery.trace.filter(t=>t.result?.http_status).length,search_hits:discovery.trace.reduce((n,t)=>n+(t.result?.raw_results||0),0),product_urls:discovery.trace.reduce((n,t)=>n+(t.result?.product_url_matched||0),0),generic_rejected:discovery.trace.reduce((n,t)=>n+(t.result?.generic_rejected||0),0),duplicates:discovery.trace.reduce((n,t)=>n+(t.result?.duplicate_rejected||0),0),snippet_priced:discovery.trace.reduce((n,t)=>n+(t.result?.priced_in_snippet||0),0)};const evaluated=enriched.map(x=>{const evaluation=req?evaluateCandidate(x,req):null;return {...x,requirement_evaluation:evaluation,match_score:evaluation?.score??x.match_score,match_reasons:evaluation?[...evaluation.positive,...evaluation.unknown,...evaluation.failures]:x.match_reasons}});const display=evaluated.filter(x=>x.status!=='sold'&&x.status!=='stale'&&x.price!=null&&x.requirement_evaluation?.fit!=='rejected').sort((a,b)=>b.match_score-a.match_score);const ai=await agentReview(query,display,filters,env,model);
