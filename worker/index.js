@@ -441,6 +441,27 @@ function gmmsjCardEvidence(html,linkIndex,productId){
  }
  return {price:null,title:null,server:null};
 }
+// G买卖's official category HTML contains large <li data-bookid="..."> cards.
+// The quoted amount is in <div class="... price ...">¥<i>1700.00</i></div>.
+// Read only that field in the card with the matching book_id.
+function gmmsjStructuredCategoryCards(html){
+ const source=String(html||''),cards=new Map();
+ const roots=[...source.matchAll(/<li\b[^>]*\bdata-bookid=["'](\d{12,50})["'][^>]*>/gi)];
+ for(let i=0;i<roots.length;i++){
+  const id=roots[i][1],raw=source.slice(roots[i].index,roots[i+1]?.index??source.length).slice(0,24000);
+  if(!raw.includes('detail_'+id+'.shtml'))continue;
+  const tags=[...raw.matchAll(/<div\b(?=[^>]*\bclass=["'][^"']*\bprice\b[^"']*["'])[^>]*>([\s\S]{0,500}?)<\/div>/gi)];
+  const amounts=tags.map(m=>decodeEntities(m[1].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()))
+   .map(t=>t.match(/^[¥￥]\s*([1-9][\d,]{0,9}(?:\.\d{1,2})?)$/u)?.[1]||null)
+   .filter(Boolean).map(t=>Number(t.replace(/,/g,''))).filter(n=>n>=10&&n<=1000000);
+  const distinct=[...new Set(amounts)];
+  const text=decodeEntities(raw.replace(/<!--[\s\S]*?-->/g,' ').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+  const title=text.match(/账号\s*((?:\[[^\]]{2,55}\]|【[^】]{2,55}】)[\s\S]{4,145}?)(?=\s+账号\s*[\[【]|\s*(?:首单优惠|可用优惠券|商品类型|冒险岛-))/u)?.[1]?.trim()||null;
+  const server=text.match(/冒险岛[-－]\s*([\p{Script=Han}A-Za-z0-9]+之大陆（?(?:电信|网通)）?\s*[-－]\s*[\p{Script=Han}A-Za-z0-9]{2,20})/u)?.[1]||null;
+  cards.set(id,{price:distinct.length===1?distinct[0]:null,title:title?.slice(0,125)||null,server});
+ }
+ return cards;
+}
 async function gmmsjCategoryLeads(game,filters,renderedHtml=null){
  if(game?.name!=='冒险岛'||(filters.version&&filters.version!=='国服'))return {items:[],diagnostic:'edition_not_supported'};
  const source='https://www.gmmsj.com/dy/5_zh.shtml?sourceType=4&special=1';
@@ -456,7 +477,7 @@ async function gmmsjCategoryLeads(game,filters,renderedHtml=null){
   // Some marketplace cards expose product URLs in data attributes or inline navigation, not href.
   const fallback=[...html.matchAll(/(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml/gi)];
   for(const m of fallback)if(!links.some(x=>x[1]===m[0]))links.push([m[0],m[0],m.index]);
-  const unique=new Map();
+  const unique=new Map(),structuredCards=gmmsjStructuredCategoryCards(html);
   for(const m of links){
    let url;try{const href=decodeEntities((m[1]||m[0]).replace(/&amp;/g,'&'));url=new URL(href.startsWith('detail_')?'/dy/5_zh/'+href:href,source)}catch{continue}
    if(url.hostname!=='www.gmmsj.com'||!isProductPage(url,'gmmsj.com')||unique.has(url.pathname))continue;
@@ -467,7 +488,7 @@ async function gmmsjCategoryLeads(game,filters,renderedHtml=null){
    const anchorTitle=cleanText(decodeEntities(anchorHtml.replace(/<[^>]+>/g,' '))).trim();
    const titleFromLink=anchorTitle.length>=10&&!/^(?:查看详情|立即购买|点击查看|商品详情|账号商品详细信息)/.test(anchorTitle)?anchorTitle.slice(0,125):null;
    const productId=url.pathname.split('/').pop().replace(/\.shtml$/,'').replace(/^detail_/,'');
-   const card=gmmsjCardEvidence(html,m.index,productId);
+   const card=structuredCards.get(productId)||gmmsjCardEvidence(html,m.index,productId);
    const listingTitle=card.title||titleFromLink;
    const title=listingTitle?'冒险岛 '+listingTitle:'冒险岛商品 '+productId.slice(-10)+'（详情待核验）';
    const nearby=listingTitle?'商品卡片文字：'+listingTitle:'来自G买卖冒险岛分类页，账号属性等待详情验证';
