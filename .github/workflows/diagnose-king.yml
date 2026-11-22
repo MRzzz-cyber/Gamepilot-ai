@@ -1,0 +1,44 @@
+name: Diagnose live King of Glory search
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproduce search and inspect public source pages
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://gamepilot-ai.zqsanjingshou.workers.dev';
+          const cases=[
+            {name:'king_filters',query:'1000元以内的王者荣耀苹果QQ账号，支持二次实名，皮肤越多越好',filters:{game:'王者荣耀',server:'苹果QQ',max_price:1000,realname:'yes'}},
+            {name:'king_basic',query:'1000元以内的王者荣耀账号',filters:{game:'王者荣耀',max_price:1000}},
+          ];
+          for(const test of cases){
+           const time=Date.now();
+           try {
+            const response=await fetch(base+'/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(test),signal:AbortSignal.timeout(110000)});
+            const data=await response.json();
+            const traces=(data.trace||[]).map(t=>({tool:t.tool,query:t.query?.slice(0,110),result:t.result,duration:t.duration_ms})).filter(t=>t.tool.startsWith('discover_')||t.tool.includes('5173')||t.tool.includes('category')||t.tool==='search_configuration');
+            console.log('LIVE_SEARCH '+JSON.stringify({name:test.name,status:response.status,ms:Date.now()-time,matched:data.items?.length||0,unpriced:data.unpriced_leads?.length||0,excluded:data.excluded_leads?.length||0,zero_reason:data.harness?.zero_result_reason,diagnostics:{upstream_errors:data.search_diagnostics?.upstream_errors,raw_hits:data.search_diagnostics?.raw_search_hits,product_urls:data.search_diagnostics?.product_urls},traces}));
+           }catch(e){console.log('LIVE_SEARCH_ERROR '+test.name+' '+String(e?.message||e))}
+          }
+          for(const [name,url] of [
+           ['pzds-home','https://www.pzds.com/'],
+           ['pzds-product','https://www.pzds.com/goodsDetails/C8YDZP/6'],
+           ['pzds-product-2','https://www.pzds.com/goodsDetails/C8UCZH/6'],
+           ['pzds-game','https://www.pzds.com/goodsList/6'],
+           ['5173-shop','https://shop.5173.com/'],
+           ['gmmsj-home','https://www.gmmsj.com/']
+          ]){
+           try{
+            const start=Date.now();
+            const r=await fetch(url,{headers:{'Accept':'text/html','User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(12000)});
+            const h=(await r.text()).slice(0,500000);
+            const links=[...h.matchAll(/(?:href|data-href|data-url)=["']([^"']+(?:goodsDetails|detail_)[^"']*)["']/gi)].slice(0,5).map(x=>x[1].slice(0,150));
+            console.log('SOURCE_PROBE '+JSON.stringify({name,status:r.status,ms:Date.now()-start,length:h.length,title:h.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.slice(0,140),links,mentionsKing:h.includes('王者荣耀'),mentionsApple:h.includes('苹果QQ'),prices:[...h.matchAll(/(?:[¥￥]|price["']?\s*[:：])\s*[1-9]\d*/g)].length,starts:h.slice(0,160).replace(/\s+/g,' ')}));
+           }catch(e){console.log('SOURCE_ERROR '+name+' '+String(e?.message||e))}
+          }
+          NODE
