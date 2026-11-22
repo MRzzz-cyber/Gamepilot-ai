@@ -33,15 +33,20 @@ function extractDetailPrice(html){
  return {price:null,price_evidence:'unknown',availability:null};
 }
 function visibleDetailPrice(html){
- // Strip scripts/styles correctly; the previous regex had escaped backslashes and matched no HTML.
- const body=decodeEntities(String(html||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const raw=String(html||'');
+ const body=decodeEntities(raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+ const head=body.split(/(?:交易流程|猜你喜欢|相似推荐|热门推荐|为你推荐)/)[0].slice(0,14000);
  const patterns=[
-  /(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,5}(?:\.\d{1,2})?)\s*元?/g,
-  /(?:^|\s)[¥￥]\s*([1-9]\d{0,5}(?:\.\d{1,2})?)(?=\s|$)/g
+  /(?:商品售价|出售价格|商品价格|当前售价|一口价|售价|现价|到手价)\s*[:：]?\s*[¥￥]?\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/gi,
+  /[¥￥]\s*([1-9]\d{0,6}(?:\.\d{1,2})?)/g
  ];
- for(const re of patterns)for(const m of body.matchAll(re)){
-  const n=Number(m[1]),context=body.slice(Math.max(0,m.index-70),m.index+90);
-  if(n>=1&&n<=1000000&&!/(?:优惠券|满减|返现|推荐商品|相似商品|原价|新人券)/.test(context))return {price:n,price_evidence:'detail_visible_labeled'};
+ for(const re of patterns)for(const m of head.matchAll(re)){
+  const n=Number(m[1]),before=head.slice(Math.max(0,m.index-20),m.index);
+  if(n>=10&&n<=1000000&&!/(?:可领|领券|优惠券|新人券|满减|返现|运费|服务费|抵扣|优惠|原价|划线价|券后|推荐|相似|起售价)/.test(before))return {price:n,price_evidence:'detail_visible_header'};
+ }
+ if(/(?:goodsDetails|商品编号|商品详情|商品售价)/i.test(raw)){
+  const re=/"(?:sellingPrice|salePrice|goodsPrice|productPrice|priceAmount|sellPrice)"\s*:\s*"?([1-9]\d{0,6}(?:\.\d{1,2})?)/gi;
+  for(const m of raw.matchAll(re)){const n=Number(m[1]);if(n>=10&&n<=1000000)return {price:n,price_evidence:'detail_embedded_product_data'}}
  }
  return {price:null,price_evidence:'unknown'};
 }
@@ -59,7 +64,7 @@ async function verifyListing(raw){
  const id=u.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||null;
  if(KNOWN_SOLD.has(id))return {status:'sold',message:'已知售出商品，排除推荐',source_url:u.href,verified_at:null,price:null};
  try{
- const r=await fetch(u.href,{redirect:'manual',signal:AbortSignal.timeout(6500),headers:{Accept:'text/html,application/xhtml+xml','User-Agent':'GamePilotBot/0.8 (+public-product-verification)'}});
+ const r=await fetch(u.href,{redirect:'follow',signal:AbortSignal.timeout(8500),headers:{Accept:'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (compatible; GamePilot/1.0; +public-product-verification)'}});
  const contentType=r.headers.get('content-type')||'';
  if(r.status!==200||!contentType.includes('text/html'))return {status:'unverified',message:'详情页无法读取（可能需要移动端或登录）',http_status:r.status,source_url:u.href};
  const html=(await r.text()).slice(0,500000);
@@ -67,7 +72,7 @@ async function verifyListing(raw){
  const gameLabel=html.match(/(?:游戏区服|所属游戏|游戏名称|游戏分类)\s*[:：]?\s*(?:<[^>]+>\s*){0,3}(王者荣耀|冒险岛M?|枫之谷|原神|和平精英|地下城与勇士|英雄联盟|永劫无间|逆水寒)/i)?.[1]||null;
  const detailGame=GAME_CATALOG.find(g=>listingGameMatches(pageTitle,'',g))?.name||(gameLabel==='枫之谷'||gameLabel==='冒险岛M'?'冒险岛':gameLabel);
  const gmmsj=u.hostname.endsWith('gmmsj.com')?gmmsjDetail(html):null;const updatedAt=listingUpdatedAt(html);const stale=isStaleListing(updatedAt);
- const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格)/.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
+ const isProductHtml=/(?:商品编号|账号编号|商品详情|商品信息|商品售价|出售价格|商品价格|goodsDetails|sellingPrice|salePrice|goodsPrice)/i.test(html)||/application\/ld\+json/i.test(html);const detail=isProductHtml?extractDetailPrice(html):{price:null,price_evidence:'unknown',availability:null};const visible=isProductHtml?visibleDetailPrice(html):{price:null,price_evidence:'unknown'};
  // Search only the page title and explicit structured availability for strong sold evidence.
  const sold=gmmsj?.status==='sold'||/(已售出|已下架|已卖出|已售罄|sold out)/i.test(pageTitle)||/(?:OutOfStock|SoldOut|Discontinued)$/i.test(detail.availability||'');
  const live=gmmsj?.status==='listed'||/(?:InStock)$/i.test(detail.availability||'');
