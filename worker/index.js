@@ -242,7 +242,7 @@ async function gmmsjCategoryLeads(game,filters){
   const html=(await response.text()).slice(0,1100000);
   const links=[...html.matchAll(/(?:href\s*=\s*["'])([^"']*(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml[^"']*)["']/gi)];
   // Some marketplace cards expose product URLs in data attributes or inline navigation, not href.
-  const fallback=[...html.matchAll(/\\/dy\\/5_zh\\/detail_[a-z0-9]+\\.shtml/gi)];
+  const fallback=[...html.matchAll(/\/dy\/5_zh\/detail_[a-z0-9]+\.shtml/gi)];
   for(const m of fallback)if(!links.some(x=>x[1]===m[0]))links.push([m[0],m[0],m.index]);
   const unique=new Map();
   for(const m of links){
