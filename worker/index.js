@@ -84,8 +84,11 @@ async function enrichCandidates(candidates){
   const v=checks.get(x.url);
   if(!v)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
   const wrongGame=!!v.detail_game&&v.detail_game!==x.game;
-  const price=wrongGame?null:v.price!=null?v.price:(v.status==='stale'?null:x.price);
-  return {...x,status:wrongGame?'wrong_game':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':v.price!=null?v.price_evidence:(v.status==='stale'?'stale_listing':x.price_evidence),price_source_label:wrongGame?'游戏不匹配（已排除）':v.price!=null?'商品详情提取价（非实时）':price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
+  // A failed/blocked detail fetch cannot validate the index price. Preserve it only as an index lead.
+  const detailVerified=v.price!=null&&v.status!=='sold'&&v.status!=='stale'&&!wrongGame;
+  const priceConflict=detailVerified&&x.price!=null&&Math.abs(v.price-x.price)>0.01;
+  const price=wrongGame||v.status==='stale'||v.status==='sold'?null:detailVerified?v.price:x.price;
+  return {...x,status:wrongGame?'wrong_game':v.status,updated_at:v.updated_at||null,detail_game:v.detail_game||null,detail_check:wrongGame?'wrong_game':v.status,verification:wrongGame?'详情页游戏与搜索需求不一致':v.message,checked_at:v.checked_at||null,price,price_evidence:wrongGame?'wrong_game':price==null?(v.status==='stale'?'stale_listing':'unavailable'):detailVerified?v.price_evidence:x.price_evidence,price_source_label:wrongGame?'游戏不匹配（已排除）':price==null?'价格未获取':detailVerified?'商品详情提取价（非实时）':'搜索索引参考价（非实时）',detail_price:wrongGame?null:v.price??null,price_conflict:priceConflict,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
