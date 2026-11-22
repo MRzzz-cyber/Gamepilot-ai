@@ -458,7 +458,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  if(!game)return json({error:'请提供游戏名称',status:'needs_clarification',candidates:[]},400);
  const filters={...parse(query),...incoming,game:game.name};
  const result=await agentSearchListings(query,filters,env);
- const candidates=result.items.map(x=>({...x,game:game.name,key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname},price_audit:{amount:x.price,currency:'CNY',source:x.price_evidence,is_realtime:false,confidence:x.price_evidence?.startsWith('detail_')?'medium':'low'}}));
+ const candidates=result.items.map(x=>({...x,game:game.name,key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname},version_label:x.version_label,price_audit:{amount:x.price,currency:'CNY',source:x.price_evidence,is_realtime:false,confidence:x.price_evidence?.startsWith('detail_')?'medium':'low'}}));
  return json({items:result.items,candidates,coverage:result.coverage,requirements:filters,filters,discovery_status:result.harness?.zero_result_reason||'searched',summary:candidates.length?'找到 '+candidates.length+' 条有价格证据的商品线索；在售状态请以源站为准。':'未获得符合条件且有价格证据的商品，不能据此判断平台无货。',agent:{status:'harness',summary:'由 Progressive Search Harness 执行，不依赖 OpenRouter。'},trace:result.trace,harness:result.harness,search_diagnostics:result.search_diagnostics,discovered_count:result.discovered_count,priced_count:result.priced_count,unpriced_leads:result.unpriced_leads});
 }
 if(url.pathname==='/api/chat'&&request.method==='POST'){let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}const prompt=String(body.message||'').slice(0,1500);if(!prompt.trim())return json({error:'请输入需求'},400);
