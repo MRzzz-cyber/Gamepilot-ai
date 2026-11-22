@@ -71,3 +71,25 @@ type ProductEvidence = {game: string | null; price: number | null; currency: 'CN
 
 ## 当前主要阻塞
 无法从执行环境直接访问这两个源站的完整动态页面；5173 新版账号详情路由和可调用的官方列表数据入口仍需用 Browser Run 实测。不应在缺少验证时硬编码所谓 API URL。
+
+## Cloudflare Browser Run V1 已接入（2026-11-23）
+
+- `wrangler.jsonc` 增加 `"browser":{"binding":"BROWSER"}`，兼容日期更新至 `2026-11-21`，无需额外的 Cloudflare REST API Token。
+- 原生 Worker `env.BROWSER.quickAction('content', { url, gotoOptions: { waitUntil: 'networkidle2' } })` 获取渲染后的 HTML；没有引入 Playwright 包依赖。
+- HTTP 商品详情价不可读时，对 `5173.com`（含允许的 shop/s 子域）和 `gmmsj.com` 最多执行 **2 次** Browser Run 详情回退。已有 HTML 正常可读时不额外消耗浏览器。
+- Brave 搜索找到明确游戏名称的 5173 搜索/分类页或 G买卖游戏分类页，而该平台当前尚无商品线索时，最多渲染 **每平台 1 个**分类页，从链接中提取商品 URL，再访问详情页核对游戏和价格。
+- 商品与分类页 URL 必须通过平台白名单、HTTPS 和路径规则；不接受用户传入的任意外部地址，不尝试验证码/登录绕过。浏览器失败仍保留原 HTTP 诊断。
+- `/api/health` 返回 `browser_configured` 和 `build`；正常搜索的 `search_diagnostics.browser` 返回 `configured`、`attempted`、`succeeded`、`recovered_prices`，`trace` 记录 `browser_category_*`、`browser_render_detail` 和 `browser_render_summary`。
+- 前端 Agent 执行路径会显示「Browser Run 渲染核价」，不把未配置或未执行步骤伪装成成功。
+
+**限制**：该阶段完成的是云端渲染采集的实际代码和模拟 HTTP/渲染响应测试，尚未验证 Cloudflare 实际浏览器实例能访问 5173/G买卖并取得真实数据。动态分类发现仍需要搜索引擎提供一个明确对应游戏的公开分类页作为种子。Browser Run 不能绕过源站反爬、登录墙或验证码，官方也明确 Browser Run 会被识别为自动化访问。
+
+### 部署和线上验收
+
+1. 确认 Cloudflare GitHub 集成部署最新 commit 且 Wrangler 支持新的 `browser` binding；Cloudflare 控制台 Browser Run 需要有可用额度。
+2. 访问 `GET /api/health`：`browser_configured: true` 表示浏览器绑定可被 Worker 识别；仅代表就绪，不代表源站访问成功。
+3. 搜索源站支持的具体游戏，比如「1000元以内冒险岛账号」；展开「Skill 与数据源」，查看是否出现 `browser_render_detail` / `browser_category_gmmsj.com` 记录和真实执行耗时。
+4. 核对返回的商品链接是否有效；比对价格、游戏身份、价格证据字段。禁止把索引价或未验证库存当作当前真实售价。
+5. 如果 Browser Run 报错，检查 `browser_render_summary` 和 `browser_render_detail` 的 `reason`。`site_challenge_or_login` 等状态需要授权或合作接口，不能靠重试绕过。
+
+测试：`npm run check`。其中 Browser Run 测试为 Mock，覆盖无绑定、HTTP 403 后渲染恢复价格、G买卖游戏分类页提取链接。真实线上验收应独立进行。
