@@ -242,17 +242,17 @@ async function gmmsjCategoryLeads(game,filters){
   const html=(await response.text()).slice(0,1100000);
   const links=[...html.matchAll(/(?:href\s*=\s*["'])([^"']*(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml[^"']*)["']/gi)];
   // Some marketplace cards expose product URLs in data attributes or inline navigation, not href.
-  const fallback=[...html.matchAll(/\/dy\/5_zh\/detail_[a-z0-9]+\.shtml/gi)];
+  const fallback=[...html.matchAll(/(?:\/dy\/5_zh\/)?detail_[a-z0-9]+\.shtml/gi)];
   for(const m of fallback)if(!links.some(x=>x[1]===m[0]))links.push([m[0],m[0],m.index]);
   const unique=new Map();
   for(const m of links){
    let url;try{const href=decodeEntities(m[1].replace(/&amp;/g,'&'));url=new URL(href.startsWith('detail_')?'/dy/5_zh/'+href:href,source)}catch{continue}
    if(url.hostname!=='www.gmmsj.com'||!isProductPage(url,'gmmsj.com')||unique.has(url.pathname))continue;
-   const nearby=cleanText(decodeEntities(html.slice(Math.max(0,m.index-1600),m.index+300).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ')));
+   const nearby=cleanText(decodeEntities(html.slice(Math.max(0,m.index-650),m.index+1200).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ')));
    const titles=[...nearby.matchAll(/(?:账号\s*)?\[([^\]]{2,80})\]([^¥￥]{0,110})/g)];
    const candidate=titles.at(-1);
-   const title=candidate?('冒险岛 '+candidate[1]+' '+candidate[2]).slice(0,160):'冒险岛账号（详情待核验）';
-   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:'G买卖冒险岛国服账号分类页',server:null,price:null,price_evidence:'unknown',price_source_label:'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:'官方冒险岛国服分类页线索，需核验详情价格与库存',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
+   const title=candidate?('冒险岛 '+candidate[1]+' '+candidate[2]).slice(0,160):('冒险岛 '+(nearby.match(/(?:黑骑士|剑刃舞者|夜使者|主教|暗影双刀|风灵使者|\d{2,3}级)[^。\n]{0,75}/)?.[0]||'账号（详情待核验）')).slice(0,160);
+   unique.set(url.pathname,{id:'gmmsj.com:'+url.pathname.split('/').pop(),game:'冒险岛',platform:'G买卖',url:url.href,title,description:nearby.slice(0,650)+' 【冒险岛国服分类页】',server:null,price:null,price_evidence:'unknown',price_source_label:'详情待核验',status:'unverified',game_confirmed:true,skins:null,heroes:null,realname:null,verification:'官方冒险岛国服分类页线索，需核验详情价格与库存',discovered_at:new Date().toISOString(),kind:'category_lead',match_score:45,match_reasons:[]});
    if(unique.size>=35)break;
   }
   return {items:[...unique.values()],diagnostic:unique.size?'ok':'no_product_links_in_html',links_found:links.length};
