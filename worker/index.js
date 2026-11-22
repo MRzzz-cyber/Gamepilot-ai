@@ -402,7 +402,7 @@ function gmmsjCardEvidence(html,linkIndex,productId){
  const source=String(html||''),start=Math.max(0,linkIndex-9000);
  // A product can be wrapped by <a>, <li>, <div> or a table row. The previous
  // parser omitted <a>, which is a common wrapper for a clickable price card.
- const opens=[...source.slice(start,linkIndex).matchAll(/<(a|li|article|section|div|dl|tr)\b[^>]*>/gi)].reverse().slice(0,120);
+ const opens=[...source.slice(start,Math.min(source.length,linkIndex+1400)).matchAll(/<(a|li|article|section|div|dl|tr)\b[^>]*>/gi)].filter(m=>start+m.index<=linkIndex).reverse().slice(0,120);
  for(const opening of opens){
   const tag=opening[1].toLowerCase(),offset=start+opening.index;
   if(linkIndex-offset>7200)continue;
