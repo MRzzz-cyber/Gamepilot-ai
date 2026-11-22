@@ -239,7 +239,13 @@ function searchPlans(game,filters){
 
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
-function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='gmmsj.com')return /^\/dy\/\d+_zh\/detail_[a-z0-9]+\.shtml$/i.test(p);if(domain==='5173.com')return (/(?:goods?|product|detail|item|sale|buy|account|game)/i.test(p)&&p.split('/').filter(Boolean).length>=2)||/\/(?:[a-z0-9_-]+\/){2,}[a-z0-9_-]{8,}(?:\.html?)?$/i.test(p);return false}
+function isProductPage(u,domain){
+ const p=u.pathname;
+ if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);
+ if(domain==='gmmsj.com')return /\/detail_[a-z0-9]+\.shtml$/i.test(p);
+ if(domain==='5173.com')return /(?:goods?|product|detail|item|sale|account|game|trade|order)/i.test(p)&&p.split('/').filter(Boolean).length>=2;
+ return false;
+}
 function extractPrice(s){
  const t=String(s||'').replace(/,/g,'').replace(/\s+/g,' ');
  // Search snippets contain levels, skill counts and other numbers. Require a price label
@@ -307,7 +313,7 @@ async function discover(query,filters,env){
     if(link.protocol!=='https:'||!(link.hostname===d.host||link.hostname.endsWith('.'+d.host)))continue;hostMatched++;if(!isProductPage(link,d.host))continue;productMatched++;
     const id=link.pathname.match(/goodsDetails\/([^/]+)/)?.[1]||link.pathname.split('/').filter(Boolean).pop();
     if(KNOWN_SOLD.has(id)){soldRejected++;continue}if(results.has(link.href)){duplicateRejected++;continue}
-    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}if(isGenericPage(title,description,game)){genericRejected++;continue}if(!gameConfirmed) {genericRejected++;continue;}
+    const title=cleanText(hit.title),description=cleanText(hit.description),full=title+' '+description;const gameConfirmed=labeledListingGame(title,description,game);const hasOtherGame=GAME_CATALOG.some(g=>g.name!==game.name&&listingGameMatches(title,'',g));if(!gameConfirmed&&hasOtherGame){genericRejected++;continue}if(isGenericPage(title,description,game)&&!gameConfirmed){genericRejected++;continue}if(!gameConfirmed) {genericRejected++;continue;}
     // Edition is validated after fetching detail evidence; do not discard indexed leads here.const foundServer=game.server?(title.match(/安卓QQ|苹果QQ|安卓微信|苹果微信/)?.[0]||null):null;
     if(server&&foundServer&&foundServer!==server){serverRejected++;continue}
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const rawPrice=extractPrice(title);const price=rawPrice!=null&&rawPrice<10?null:rawPrice;if(price!=null)priced++;const skins=Number(title.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
