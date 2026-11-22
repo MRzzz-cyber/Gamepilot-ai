@@ -13,22 +13,24 @@ test('main.jsx is syntactically valid React JSX',()=>{
 });
 
 test('interview architecture is separate from actual backend execution',()=>{
- for(const token of ['HARNESS_LAYERS','INTERVIEW_SCRIPT','sidebarTab','role="tablist"','架构设计','运行记录','本页为架构说明','后端 Trace','harnessStageState'])
+ for(const token of ['HARNESS_LAYERS','harnessArchitectureDetails','Agent 执行路径','本次执行','数据源及工具调用','后端 Trace','harnessStageState'])
   assert.ok(jsx.includes(token),'missing: '+token);
- assert.ok(jsx.includes("useState('architecture')"),'architecture should be available as default interview view');
+ assert.ok(jsx.includes('<details className="harnessArchitectureDetails" open>'),'architecture should open by default below execution path');
+ assert.ok(jsx.indexOf('本次执行')<jsx.indexOf('className="harnessArchitectureDetails"'),'real execution must appear above architecture');
+ for(const removed of ['INTERVIEW_SCRIPT','copyInterviewScript','面试讲解','复制讲解稿','INTERVIEW EDITION'])assert.ok(!jsx.includes(removed),'removed interview UI should not remain: '+removed);
  assert.ok(jsx.includes("harness?.stages")||jsx.includes("harness.stages"),'runtime view must use actual server stages');
  assert.ok(jsx.includes("trace.filter("),'runtime source trace must be visible');
  assert.ok(!jsx.includes('假装已执行'),'avoid toy status strings');
 });
 
 test('architecture cards and statuses have responsive styles',()=>{
- for(const token of ['.harnessArchitectureFlow','.harnessArchitectureLayer','.harnessViewTabs','.harnessOutputGrid','.harnessInterviewDetails','.executionStep.error'])
+ for(const token of ['.harnessArchitectureFlow','.harnessArchitectureLayer','.harnessArchitectureDetails','.harnessArchitectureToggle','.harnessOutputGrid','.executionStep.warning'])
   assert.ok(css.includes(token),'missing style: '+token);
 });
 
 test('harness does not mark zero matches or skipped tools as success',()=>{
  const a=jsx.indexOf('const harnessStageState=');
- const b=jsx.indexOf('const INTERVIEW_SCRIPT=',a);
+ const b=jsx.indexOf('const GAME_NAMES=',a);
  assert.ok(a>=0&&b>a,'status helpers must be included in the product UI');
  const {harnessStageState,harnessResultDescription}=new Function(jsx.slice(a,b)+';return {harnessStageState,harnessResultDescription}')();
  assert.equal(harnessStageState({stage:'hard_filter_and_rank',count:0,outcome:'no_match'}),'warning');
