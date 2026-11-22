@@ -38,7 +38,7 @@ async function enrichCandidates(candidates){
  return candidates.map((x,i)=>{
   if(i>=checks.length)return {...x,detail_check:'not_checked',verification:'尚未抓取商品详情'};
   const v=checks[i];const price=v.price!=null?v.price:x.price;
-  return {...x,status:v.status,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
+  return {...x,status:v.status,detail_check:v.status,verification:v.message,checked_at:v.checked_at||null,price,price_evidence:v.price!=null?v.price_evidence:x.price_evidence,price_source_label:v.price!=null?'商品详情结构化提取价（仍需核验）':x.price!=null?'搜索索引参考价（非实时）':'价格未获取',detail_price:v.price??null,price_conflict:v.price!=null&&x.price!=null&&Math.abs(v.price-x.price)>0.01,availability_evidence:v.availability_evidence||null};
  });
 }
 function coverageReport(candidates,trace){
@@ -61,12 +61,18 @@ function detectGame(q){const text=String(q||'').toLowerCase();return GAME_CATALO
 function gameMatches(text,game){const t=String(text||'').toLowerCase();return game.aliases.some(a=>t.includes(a.toLowerCase()))}
 function searchPlans(game,filters){
  const budget=Math.max(1,Number(filters.max_price)||1000),server=game.server&&filters.server!=='all'?filters.server:'';
- const terms=[game.name+' 账号 出售',game.name+' '+(server||game.terms[1])+' 账号',game.name+' '+game.terms[2]+' 交易',game.name+' '+Math.round(budget*0.8)+' 元',game.name+' '+Math.round(budget*1.1)+' 元',game.name+' 成品号'];
+ const terms=[game.name+' 账号 出售',game.name+' '+(server||game.terms[1])+' 账号',game.name+' '+game.terms[2]+' 交易',game.name+' '+Math.round(budget*0.8)+' 元',game.name+' '+Math.round(budget*1.1)+' 元',game.name+' 成品号',...game.aliases.slice(1,3).map(alias=>alias+' 账号 交易'),game.name+' 角色 价格'];
  return SEARCH_DOMAINS.flatMap(d=>terms.map((term,i)=>({d,q:'site:'+d.host+' '+term,offset:0,variant:i})));
 }
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'pxb7.com',platform:'螃蟹账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
-function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='pxb7.com')return /^\/(?:seo\/buy\/\d+(?:\/\d+)?|goods?\/[a-z0-9_-]+|detail\/[a-z0-9_-]+|(?:buy|product|item)\/[a-z0-9_-]+)\/?$/i.test(p);if(domain==='5173.com'||domain==='gmmsj.com')return /\/(?:goods?|product|detail|item|sale|buy)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
-function extractPrice(s){const matches=[...s.matchAll(/(?:[¥￥]\s*|(?:售价|价格|卖价|现价|到手价)\s*[:：]?\s*)([1-9]\d{1,5})(?:\.\d{1,2})?\s*(?:元)?/g)].map(x=>Number(x[1]));return matches.length?matches[0]:null}
+function isProductPage(u,domain){const p=u.pathname;if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);if(domain==='pxb7.com')return /^\/(?:seo\/buy\/\d+(?:\/\d+)?|goods?\/[a-z0-9_-]+|detail\/[a-z0-9_-]+|(?:buy|product|item)\/[a-z0-9_-]+|[a-z0-9_-]*goods[a-z0-9_/-]*|[a-z0-9_-]*product[a-z0-9_/-]*)\/?$/i.test(p);if(domain==='5173.com'||domain==='gmmsj.com')return /\/(?:goods?|product|detail|item|sale|buy)\b/i.test(p)&&p.split('/').filter(Boolean).length>=2;return false}
+function extractPrice(s){
+ const t=String(s||'').replace(/,/g,'');
+ // Require explicit currency or price labels; never treat game stats, IDs or levels as prices.
+ const patterns=[/(?:售价|现价|到手价|商品价格|标价|卖价|参考价)\\s*[:：]?\\s*[¥￥]?\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*(?:元)?/gi,/[¥￥]\\s*([1-9]\\d{0,5}(?:\\.\\d{1,2})?)/g,/([1-9]\\d{0,5}(?:\\.\\d{1,2})?)\\s*元(?:\\s|$|[，。；])/g];
+ for(const re of patterns){const matches=[...t.matchAll(re)].map(m=>Number(m[1])).filter(v=>Number.isFinite(v)&&v>=1&&v<=1000000);if(matches.length)return matches[0]}
+ return null;
+}
 function cleanText(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&[^; ]+;/g,' ').replace(/\s+/g,' ').slice(0,700)}
 async function discover(query,filters,env){
  if(!env.BRAVE_SEARCH_API_KEY)return {candidates:[],trace:[{tool:'search',result:{error:'BRAVE_SEARCH_API_KEY 未配置'}}],reason:'missing_search_key',message:'搜索服务未配置'};
@@ -89,7 +95,7 @@ async function discover(query,filters,env){
     if(/已下架|已售出|已卖出|已售罄|已下单|已交易|sold out/i.test(full)){soldRejected++;continue}const price=extractPrice(full),skins=Number(full.match(/(?:皮肤(?:数量|数)?|皮肤)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const heroes=Number(full.match(/(?:英雄(?:数量|数)?|英雄)\s*[:：]?\s*(\d{2,4})/)?.[1])||null;
     const realname=/不可二次实名|不可二改|不支持二次实名/.test(full)?false:/可二次实名|支持二次实名|可二改/.test(full)?true:null;
-    results.set(link.href,{id:d.host+':'+id,game:game.name,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',status:'unverified',skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
+    results.set(link.href,{id:d.host+':'+id,game:game.name,platform:d.platform,url:link.href,title,description,server:foundServer,price,price_evidence:price===null?'unknown':'search_snippet',price_source_label:price===null?'价格未获取':'搜索索引参考价（非实时）',status:'unverified',skins,heroes,realname,verification:'搜索索引，未核验实时在售',discovered_at:new Date().toISOString(),kind:'discovered',match_score:0,match_reasons:[]});valid++;
    }
    trace.push({tool:'discover_'+d.host,query:q,result:{raw_results:(j.web?.results||[]).length,host_matched:hostMatched,product_url_matched:productMatched,server_rejected:serverRejected,known_sold_rejected:soldRejected,detail_pages:valid},duration_ms:Date.now()-t});
   }catch(e){trace.push({tool:'discover_'+d.host,query:q,result:{error:'timeout_or_network_error'},duration_ms:Date.now()-t})}
