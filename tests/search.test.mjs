@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 const source=readFileSync(new URL('../worker/index.js',import.meta.url),'utf8');
 const factory=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+
- ';return {worker,resolveGame,interpretIntent,genericGameEvidence,searchPlans,extractPrice}');
+ ';return {worker,resolveGame,interpretIntent,genericGameEvidence,searchPlans,extractPrice,gmmsjDetail,isProductPage}');
 
 function runtime(){
  const calls=[];
@@ -114,4 +114,19 @@ test('seven discovered leads remain visible as one priced and six unpriced sourc
  assert.equal(response.data.excluded_leads.length,0);
  assert.ok(response.data.unpriced_leads.every(x=>x.price===null&&x.url.startsWith('https://www.pzds.com/goodsDetails/')));
  assert.ok(response.data.unpriced_leads.every(x=>x.reason.includes('价格字段')));
+});
+
+test('modern G买卖 H5 product paths and sale price vs coupon are parsed correctly',()=>{
+ const {isProductPage,gmmsjDetail,searchPlans,resolveGame}=runtime();
+ const detail=new URL('https://www.gmmsj.com/h5/goods/detail/index.html?book_id=00005000000015363821794470004765&game_id=5&goods_type=10');
+ assert.equal(isProductPage(detail,'gmmsj.com'),true);
+ assert.equal(isProductPage(new URL('https://www.gmmsj.com/h5/goods/detail/index.html'),'gmmsj.com'),false);
+ assert.equal(isProductPage(new URL('https://www.gmmsj.com/dy/78_zh/detail_00078000000017940402211650003255.shtml'),'gmmsj.com'),true);
+ assert.equal(isProductPage(new URL('https://shop.5173.com/goods/1234567890'),'5173.com'),true);
+ assert.equal(isProductPage(new URL('https://shop.5173.com/'),'5173.com'),false);
+ assert.equal(gmmsjDetail('<div>商品详情 可领优惠券 ￥10 1/0 ￥280.00 库存 1 账号 编号 0960009368 游戏名称 冒险岛</div>').price,280);
+ assert.equal(gmmsjDetail('<div>商品详情 可领优惠券 ￥10 编号 0960009368</div>').price,null);
+ const plans=searchPlans(resolveGame('三角洲账号'),{});
+ assert.ok(plans.some(x=>x.q.includes('site:shop.5173.com')));
+ assert.ok(plans.some(x=>x.q.includes('site:gmmsj.com/h5/goods/detail')));
 });
