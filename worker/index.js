@@ -90,7 +90,7 @@ function extractListingAttributes(html){
  const power=field(/(?:战斗力|战力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:亿|万)?)/u);
  const stock=number(/(?:库存)\s*[:：]?\s*(\d{1,6})(?!\d)/u);
  const listingId=field(/(?:商品编号|账号编号|货号|商品ID|编号)\s*[:：]?\s*([A-Za-z0-9_-]{5,40})/u);
- const description=field(/(?:商品描述|账号描述|详细描述)\s*[:：]?\s*(.{10,340}?)(?=交易流程|购买须知|售后保障|举报|服务保障|$)/u);
+ const description=text.match(/(?:商品描述|账号描述|详细描述)\s*[:：]?\s*(.{10,240})/u)?.[1]?.split(/交易流程|购买须知|售后保障|举报|服务保障/u)[0]?.trim()||null;
  const headline=decodeEntities(String(html).match(/<(?:h1|h2)\b[^>]*>([\s\S]{1,220}?)<\/(?:h1|h2)>/i)?.[1]||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,150);
  return {server:server?server.replace(/^iOS\s*/i,'苹果'):null,skins,heroes,realname,rank,noble,profession,level,power,stock,listing_id:listingId,summary:description?.slice(0,240)||null,title:headline&&!/^(?:商品详情|商品信息|游戏账号|交易流程|猜你喜欢|相关推荐)$/u.test(headline)?headline:null};
 }
@@ -632,7 +632,7 @@ async function agentSearchListings(query,args,env){
  const items=editionSafe
   .filter(x=>(x.game_confirmed||x.detail_game===game?.name)&&!['sold','stale','wrong_game','game_unconfirmed'].includes(x.status))
   .map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null}))
-  .filter(x=>x.price!=null&&x.requirement_evaluation?.fit!=='rejected')
+  .filter(x=>x.price!=null&&x.requirement_evaluation?.fit!=='rejected'&&(!req.hard.some(h=>h.field==='server')||x.server)&&(!req.hard.some(h=>h.field==='realname')||x.realname===true))
   .sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0))
   .slice(0,20)
   .map(x=>{
@@ -658,7 +658,7 @@ async function agentSearchListings(query,args,env){
   game:game?.name||null,platform:x.platform,title:x.title,url:x.url,id:x.id,detail_summary:x.detail_summary||null,detail_attributes:x.detail_attributes||null,detail_listing_id:x.detail_listing_id||null,
   price:x.price??null,category,detail_status:x.detail_check||'not_checked',
   http_status:x.detail_http_status||null,fetch_error:x.detail_fetch_error||null,
-  reason:x.price==null?(x.detail_http_status?'源站详情请求失败：HTTP '+x.detail_http_status:x.detail_fetch_error?'源站详情抓取失败：'+x.detail_fetch_error:x.detail_check==='not_checked'?'尚未读取详情页':x.status==='sold'?'商品已售出':x.status==='stale'?'商品信息已过期':x.status==='wrong_game'||x.status==='game_unconfirmed'?'游戏身份未核实':'详情页未识别到可靠价格字段'):(x.verification||'其他条件未通过'),
+  reason:x.price==null?(x.detail_http_status?'源站详情请求失败：HTTP '+x.detail_http_status:x.detail_fetch_error?'源站详情抓取失败：'+x.detail_fetch_error:x.detail_check==='not_checked'?'尚未读取详情页':x.status==='sold'?'商品已售出':x.status==='stale'?'商品信息已过期':x.status==='wrong_game'||x.status==='game_unconfirmed'?'游戏身份未核实':'详情页未识别到可靠价格字段'):(x.requirement_evaluation?.failures?.[0]||x.requirement_evaluation?.unknown?.[0]||(!x.server&&req.hard.some(h=>h.field==='server')?'区服未核实':x.realname==null&&req.hard.some(h=>h.field==='realname')?'实名状态未核实':x.verification)||'其他条件未通过'),
   evidence:x.price_evidence||'unknown',
   status:x.status||'unverified'
  });
