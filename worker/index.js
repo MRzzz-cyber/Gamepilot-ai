@@ -265,7 +265,7 @@ async function gmmsjCategoryLeads(game,filters){
 async function discover(query,filters,env){
  // Public category feeds can still discover leads when Brave is missing or rate-limited.
  const trace=[],results=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
- if(!game)return {candidates:[],trace:[{tool:'detect_game',result:{error:'unsupported_game',supported:GAME_CATALOG.map(g=>g.name)}}],reason:'unsupported_game',message:'暂未识别游戏名称，请输入王者荣耀、冒险岛、原神等游戏名称'};
+ if(!game)return {candidates:[],trace:[{tool:'resolve_game',result:{error:'missing_game_name'}}],reason:'missing_game_name',message:'请提供具体游戏名称，例如「找鸣潮账号」'};
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);for(const item of feed.items)results.set(item.url,item);trace.push({tool:'gmmsj_category',result:{status:feed.diagnostic,detail_pages:feed.items.length,links_found:feed.links_found||0}});
  const allPlans=env.BRAVE_SEARCH_API_KEY?searchPlans(game,filters):[];
@@ -335,7 +335,7 @@ const tools=[{type:'function',function:{name:'search_listings',description:'自�
 // Progressive requirement collection before searching ambiguous game editions.
 function clarifyGameEdition(message,context={}){
  const text=String(message||'');
- const game=detectGame(text)||GAME_CATALOG.find(g=>g.name===context.game);
+ const game=resolveGame(text,context);
  if(!game||game.name!=='冒险岛')return null;
  const version=/(?:冒险岛M|MapleStory\s*M|手游版|手机版)/i.test(text)?'手游版':/(?:国际服|Global|GMS)/i.test(text)?'国际服':/(?:台服|枫之谷|TMS)/i.test(text)?'台服／枫之谷':/(?:国服|盛趣)/i.test(text)?'国服':context.version||null;
  const budgetMatch=text.match(/(?:预算|不超过|以内|低于|提高到|改成|调整到|降到|最多|上限)\s*[¥￥]?\s*(\d{2,7})|(?:[¥￥]\s*)?(\d{2,7})\s*(?:元|块)\s*(?:以内|以下)?/);
@@ -393,7 +393,7 @@ export default {async fetch(request,env){const url=new URL(request.url);if(url.p
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000),parsed=parse(query),incoming=body.filters||{};
  const filters={...parsed,...incoming,server:incoming.server&&incoming.server!=='all'?incoming.server:parsed.server,realname:incoming.realname&&incoming.realname!=='all'?incoming.realname:parsed.realname,max_price:Number(incoming.max_price)>0?Number(incoming.max_price):parsed.max_price};
- const game=detectGame(query);const req=game?requirements(query,filters,game):null;const discovery=await discover(query,filters,env);
+ const game=resolveGame(query,filters);const req=game?requirements(query,filters,game):null;const discovery=await discover(query,filters,env);
  // Once edition and budget are known, search deterministically rather than waiting for an LLM tool decision.
  if(clarification&&!clarification.needs_clarification){
   try{
