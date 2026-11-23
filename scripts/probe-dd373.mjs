@@ -1,3 +1,4 @@
+import {parsePzdsDeltaListing} from '../worker/public-collector.js';
 // Bounded public-page diagnostic: 1 HTTP GET, no paid APIs or auth bypass.
 const u='https://www.dd373.com/s-gp1gaj-f4wdcm-sxbrka-0-0-0-04q04w-0-0-0-0-0-1-0-0-0.html?MaxPrice=500.00&MinPrice=200.00';
 try{
@@ -17,6 +18,6 @@ for(const [name,u] of [
  try{
   const res=await fetch(u,{signal:AbortSignal.timeout(12000),headers:{Accept:'text/html','User-Agent':'GamePilotPublicIndexer/1.0'}});
   const html=(await res.text()).slice(0,2000000);
-  console.log('PZDS_PROBE',JSON.stringify({name,status:res.status,bytes:html.length,details:(html.match(/goodsDetails\/[A-Z0-9]+\/6/g)||[]).length,priceTokens:(html.match(/money-count|¥|￥/g)||[]).length,challenge:/人机验证|访问验证|captcha|Access Denied|Just a moment/i.test(html.slice(0,10000)),sample:html.slice(Math.max(0,html.indexOf('goodsDetails/')-500),Math.max(0,html.indexOf('goodsDetails/')-500)+1900)}));
+  console.log('PZDS_PROBE',JSON.stringify({name,parsed:name==='pzds_delta_list'?parsePzdsDeltaListing(html).slice(0,3).map(x=>({id:x.id,price:x.price,title:x.title.slice(0,70)})):[],parsed_total:name==='pzds_delta_list'?parsePzdsDeltaListing(html).length:0,status:res.status,bytes:html.length,details:(html.match(/goodsDetails\/[A-Z0-9]+\/6/g)||[]).length,priceTokens:(html.match(/money-count|¥|￥/g)||[]).length,challenge:/人机验证|访问验证|captcha|Access Denied|Just a moment/i.test(html.slice(0,10000)),sample:html.slice(Math.max(0,html.indexOf('goodsDetails/')-500),Math.max(0,html.indexOf('goodsDetails/')-500)+1900)}));
  }catch(e){console.log('PZDS_PROBE_ERROR',name,String(e).slice(0,180))}
 }
