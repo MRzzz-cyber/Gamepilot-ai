@@ -515,15 +515,13 @@ test('Delta budget searches use native catalogue pagination and price evidence a
  const query='三角洲500元以内的账号';
  const {status,data:first}=await post(worker,'/api/search',{query,filters:{}});
  assert.equal(status,200);
- assert.deepEqual(first.items.map(x=>x.price),[45,85,500]);
+ assert.deepEqual(first.items.map(x=>x.price),[45,85,500,466]);
  assert.ok(first.items.every(x=>x.price_evidence==='tao_category_visible_price'&&x.status==='unverified'));
  assert.equal(first.listing_page.source_pages,4);
- assert.deepEqual(first.listing_page.next_cursor,[{bucket:3,page:2}]);
- const {data:page2}=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
- assert.deepEqual(page2.items.map(x=>x.price),[466]);
- assert.equal(page2.listing_page.next_page,null);
+ assert.deepEqual(first.listing_page.next_cursor,[]);
+ assert.equal(first.listing_page.next_page,null);
  const {data:chat}=await post(worker,'/api/chat',{message:'三角洲行动500元以内的账号'});
- assert.deepEqual(chat.items.map(x=>x.price),[45,85,500]);
+ assert.deepEqual(chat.items.map(x=>x.price),[45,85,500,466]);
  assert.ok(chat.items.every(x=>x.game==='三角洲行动'));
  assert.ok(!calls.some(x=>x.includes('brave.com')||x.includes('/taoid_')));
  const invalid=await post(worker,'/api/search',{query,page:2,cursor:[{bucket:6,page:2}]});
@@ -546,4 +544,34 @@ test('catalogue requests retain failed price buckets for retry and reject a repe
  const next=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
  assert.equal(next.status,502);
  assert.ok(next.data.trace.some(x=>x.result.status==='unexpected_category_or_page'));
+});
+
+
+test('initial Delta search collects over 100 unique priced listings and resumes at the unread source page',async()=>{
+ const failures=new Map();
+ const mock=async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==='www.pzds.com')return new Response('',{status:503});
+  assert.equal(url.hostname,'www.taoshouyou.com');
+  const parts=url.pathname.split('/').at(-1).split('-').map(Number),bucket=parts[4],page=parts.at(-1);
+  if(bucket===3&&page===1&&!failures.has(bucket)){
+   failures.set(bucket,true);
+   return new Response('',{status:503});
+  }
+  const cards=Array.from({length:21},(_,i)=>taoCard(82000000+bucket*10000+page*100+i,i===20?'500.01':'280'));
+  cards.push(taoCard(82999999,'290'),taoCard(82888888,'无报价'));
+  return new Response(taoFixture(page,bucket===1?2:8,cards.join(''),bucket));
+ };
+ const {worker}=factory(mock,URL,Response,AbortSignal);
+ const query='三角洲500元以内的账号';
+ const {data:first}=await post(worker,'/api/chat',{message:query});
+ assert.equal(first.items.length,141);
+ assert.equal(new Set(first.items.map(x=>x.id)).size,first.items.length);
+ assert.ok(first.items.every(x=>x.price>0&&x.price<=500&&x.price_evidence==='tao_category_visible_price'));
+ assert.ok(first.trace.some(t=>t.result?.http_status===503));
+ assert.deepEqual(first.listing_page.next_cursor,[{bucket:2,page:4},{bucket:3,page:3}]);
+ const {status,data:next}=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
+ assert.equal(status,200);
+ assert.deepEqual(next.listing_page.next_cursor,[{bucket:2,page:5},{bucket:3,page:4}]);
+ assert.ok(next.items.some(x=>!first.items.some(y=>x.id===y.id)));
 });

@@ -114,6 +114,7 @@ function App(){
  function applySearchResult(d,append=false){
   const expectedGame=d.requirements?.game||d.filters?.game||null;
   const cards=(d.items||d.candidates||[]).filter(x=>!expectedGame||x.game===expectedGame);
+  if(!append&&d.listing_page)setVisibleCount(Math.max(60,cards.length));
   setItems(previous=>append?[...new Map([...previous,...cards].map(item=>[item.id,item])).values()]:cards);
   setListingPage(previous=>{
    const page=d.listing_page;
