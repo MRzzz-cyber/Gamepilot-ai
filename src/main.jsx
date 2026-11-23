@@ -79,7 +79,7 @@ function deltaListingFields(item,detail){
 }
 function DeltaProductCard({item,detail,chosen,onVerify,onToggle}){
  const fields=deltaListingFields(item,detail);
- const quote=item.price_audit?.source==='商品详情页'?'详情提取价':'列表标价';
+ const quote=item.price_audit?.source==='商品详情页'?'详情提取价':item.price_audit?.source==='源站商品列表（非实时）'?'列表标价':'索引参考价';
  const detailPrice=detail?.game_match&&detail.price!=null?detail.price:null;
  return <article className="productCard deltaProductCard">
   <div className="cardTop"><span className="platformTag">{item.platform}</span><span className="deltaQuoteLabel">{quote}</span></div>
@@ -87,7 +87,7 @@ function DeltaProductCard({item,detail,chosen,onVerify,onToggle}){
   <h3 title={item.title}>{item.title}</h3>
   {fields.length>0&&<dl className="deltaCardFields">{fields.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
   {detail&&!detail.loading&&<div className="deltaDetail" aria-live="polite">
-   {detail.error||<>{detailPrice!=null&&<strong>详情提取价 {fmt(detailPrice)}{detail.budget_match===false?' · 超出预算':''}</strong>}<span>{detail.reason}</span></>}
+   {detail.error||<>{detailPrice!=null&&<strong>详情提取价 {fmt(detailPrice)}{detail.budget_match===false?' · 超出预算':''}</strong>}<span>{detail.reason}</span>{detail.game_match&&detail.attributes?.summary&&<span>{detail.attributes.summary}</span>}</>}
   </div>}
   <div className="cardFoot">
    <a href={item.url} target="_blank" rel="noopener noreferrer">查看源站 <ExternalLink size={13}/></a>
