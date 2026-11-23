@@ -9,3 +9,14 @@ try{
   console.log('DETAIL_MARKUP_SAMPLE',JSON.stringify(html.slice(Math.max(0,m.index-700),Math.min(html.length,m.index+1100))));
  }
 }catch(e){console.log('DD373_PROBE_ERROR',String(e).slice(0,180))}
+
+for(const [name,u] of [
+ ['pzds_delta_list','https://www.pzds.com/goodsList/391/6'],
+ ['pzds_delta_detail','https://www.pzds.com/goodsDetails/SA48QK0/6']
+]){
+ try{
+  const res=await fetch(u,{signal:AbortSignal.timeout(12000),headers:{Accept:'text/html','User-Agent':'GamePilotPublicIndexer/1.0'}});
+  const html=(await res.text()).slice(0,2000000);
+  console.log('PZDS_PROBE',JSON.stringify({name,status:res.status,bytes:html.length,details:(html.match(/goodsDetails\/[A-Z0-9]+\/6/g)||[]).length,priceTokens:(html.match(/money-count|¥|￥/g)||[]).length,challenge:/人机验证|访问验证|captcha|Access Denied|Just a moment/i.test(html.slice(0,10000)),sample:html.slice(0,200)}));
+ }catch(e){console.log('PZDS_PROBE_ERROR',name,String(e).slice(0,180))}
+}
