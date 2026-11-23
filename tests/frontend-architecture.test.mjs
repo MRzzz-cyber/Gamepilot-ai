@@ -41,3 +41,14 @@ test('harness does not mark zero matches or skipped tools as success',()=>{
  assert.match(harnessResultDescription({zero_result_reason:'over_budget',filter_gate:{over_budget:1}},[]),/预算/);
  assert.ok(jsx.includes('V1.0 · HARNESS MAP'),'visible version must identify newly deployed UI');
 });
+
+test('continuation cards are deduplicated and re-ranked by budget across both batches',()=>{
+ const a=jsx.indexOf('function mergeListingCards(');
+ const b=jsx.indexOf('function App()',a);
+ assert.ok(a>=0&&b>a);
+ const merge=new Function(jsx.slice(a,b)+';return mergeListingCards')();
+ const previous=[{id:'low',price:50},{id:'mid',price:480,match_score:70}];
+ const incoming=[{id:'new',price:499},{id:'mid',price:470,match_score:70},{id:'tie',price:470,match_score:80}];
+ assert.deepEqual(merge(previous,incoming,'price_desc').map(x=>[x.id,x.price]),[['new',499],['tie',470],['mid',470],['low',50]]);
+ assert.ok(jsx.includes('mergeListingCards(previous,cards,d.listing_page?.sort)'));
+});
