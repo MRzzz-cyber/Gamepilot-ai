@@ -579,3 +579,34 @@ test('initial Delta search collects over 100 unique priced listings and resumes 
  assert.deepEqual(next.items.slice(0,3).map(x=>x.price),[490,490,490]);
  assert.ok(next.items.some(x=>!first.items.some(y=>x.id===y.id)));
 });
+
+
+test('1000 yuan Delta search reads beyond a stalled high-price page and returns source attributes',async()=>{
+ let allowFirstPage=false;
+ const calls=[];
+ const mock=async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==='www.pzds.com')return new Response('',{status:503});
+  assert.equal(url.hostname,'www.taoshouyou.com');
+  const parts=url.pathname.split('/').at(-1).split('-').map(Number),bucket=parts[4],page=parts.at(-1);
+  calls.push([bucket,page]);
+  if(bucket===4&&page===1&&!allowFirstPage)return new Response('',{status:503});
+  const title=bucket===4?'103m总资产-7515k哈夫币-行动等级60 战场等级34 传说近战数3 干员外观数4 烽火段位黑鹰1':'三角洲账号';
+  const cards=Array.from({length:20},(_,i)=>taoCard(83000000+bucket*10000+page*100+i,bucket===4?'966':'299',title));
+  return new Response(taoFixture(page,10,cards.join(''),bucket));
+ };
+ const {worker}=factory(mock,URL,Response,AbortSignal);
+ const query='三角洲1000元以内的账号';
+ const {data:first}=await post(worker,'/api/chat',{message:query});
+ assert.ok(first.items.length>=150);
+ assert.equal(first.items.filter(x=>x.price>=700).length,80);
+ assert.equal(first.items[0].price,966);
+ assert.deepEqual(first.items[0].delta_attributes,{total_assets:'103M',hafcoins:'7515K',operation_level:'60',warfare_level:'34',
+  operation_rank:'黑鹰1',melee_count:'3',operator_skin_count:'4',weapon_skin_count:null,realname:null});
+ assert.deepEqual(first.listing_page.next_cursor.find(x=>x.bucket===4),{bucket:4,page:1,read_pages:[2,3,4,5]});
+ allowFirstPage=true;
+ calls.length=0;
+ const {data:next}=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
+ assert.deepEqual(next.listing_page.next_cursor.find(x=>x.bucket===4),{bucket:4,page:6});
+ assert.deepEqual(calls.filter(([bucket])=>bucket===4),[[4,1]]);
+});
