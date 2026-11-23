@@ -618,12 +618,10 @@ async function pzdsCategoryLeads(game,filters,htmlOverride=null){
 
 const TAO_DELTA='https://www.taoshouyou.com/game/sanjiaozhouxingdong-36881-0-0';
 const TAO_BUCKET_MINIMUMS=[0,50,100,500,1000,2000];
-const TAO_FIRST_QUERY='?selfsupport=&quotaid=0&isinsurance=0&tags=&isPreviewRank=0&previewConfig=';
 const TAO_PAGE_QUERY='?quotaid=0&isinsurance=0&isCertificationShop=2&isActivity=0&tags=&isPreviewRank=0&bornType=-1&popularize=0&antiAddictionStatus=0';
 
 function taoListingUrl(bucket,page){
- const category=TAO_DELTA+'/0-0-0-0-'+bucket+'-13-';
- return page===1?category+'1'+TAO_FIRST_QUERY:category+'0-0-0-'+page+TAO_PAGE_QUERY;
+ return TAO_DELTA+'/0-0-0-0-'+bucket+'-13-0-0-0-'+page+TAO_PAGE_QUERY;
 }
 
 function taoListingCards(html,game){
