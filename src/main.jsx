@@ -115,10 +115,14 @@ function App(){
   const expectedGame=d.requirements?.game||d.filters?.game||null;
   const cards=(d.items||d.candidates||[]).filter(x=>!expectedGame||x.game===expectedGame);
   setItems(previous=>append?[...new Map([...previous,...cards].map(item=>[item.id,item])).values()]:cards);
-  setListingPage(previous=>d.listing_page?{
-   ...d.listing_page,filters:d.requirements||d.filters||{},
-   source_pages:d.listing_page.source_pages??(append?previous?.source_pages:null)
-  }:null);
+  setListingPage(previous=>{
+   const page=d.listing_page;
+   if(!page)return null;
+   const counts={...(append?previous?.source_page_counts:null),...page.source_page_counts};
+   const pages=Object.values(counts);
+   return {...page,filters:d.requirements||d.filters||{},source_page_counts:counts,
+    source_pages:pages.length===page.source_bucket_count?pages.reduce((sum,n)=>sum+n,0):page.source_pages};
+  });
   setUnpricedLeads((d.unpriced_leads||[]).filter(x=>!expectedGame||!x.game||x.game===expectedGame));
   setExcludedLeads((d.excluded_leads||[]).filter(x=>!expectedGame||!x.game||x.game===expectedGame));
   setLeadAudit(d.lead_audit||null);
@@ -154,7 +158,7 @@ function App(){
   if(!listingPage?.next_page||loadingMore||busy||chatBusy)return;
   const {id,signal}=beginSearch();
   const {query,filters}=listingPage;
-  let next=listingPage;
+  let next=listingPage,retries=0;
   setLoadingMore(true);setError('');
   try{
    do{
@@ -162,12 +166,17 @@ function App(){
      body:JSON.stringify({query,filters,page:next.next_page,cursor:next.next_cursor})});
     const d=await r.json();
     if(signal.aborted||!isLatest(id))return;
+    const restricted=d.trace?.some(t=>t.result?.http_status===429||t.result?.http_status===403);
+    if(untilEnd&&r.status===502&&!restricted&&retries<2){
+     retries++;
+     await new Promise(resolve=>setTimeout(resolve,2500));
+     continue;
+    }
     if(!r.ok||!d.listing_page)throw Error(d.error||'源站暂未返回下一页，请重试');
+    retries=0;
     applySearchResult(d,true);
     next=d.listing_page;
-    if(untilEnd&&d.trace?.some(t=>t.result?.http_status===429||t.result?.http_status===403)){
-     throw Error('源站暂时限制访问，已保留查到的账号，请稍后继续');
-    }
+    if(untilEnd&&restricted)throw Error('源站暂时限制访问，已保留查到的账号，请稍后继续');
     if(untilEnd&&next.next_page)await new Promise(resolve=>setTimeout(resolve,1200));
    }while(untilEnd&&next.next_page&&!signal.aborted&&isLatest(id));
   }catch(e){if(isLatest(id)&&e.name!=='AbortError')setError(e.message)}

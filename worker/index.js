@@ -707,10 +707,11 @@ async function taoDeltaListings(game,filters,round,cursor){
   if(!page.items)return [stream];
   return page.nextPage?[{bucket:stream.bucket,page:page.nextPage}]:[];
  });
- const firstPageCounts=round===1&&pages.every(x=>x.items&&x.pageCount!=null)
-  ?pages.reduce((sum,x)=>sum+x.pageCount,0):null;
+ const pageCounts=Object.fromEntries(streams.flatMap((stream,i)=>pages[i].pageCount==null?[]:[[stream.bucket,pages[i].pageCount]]));
+ const bucketCount=taoPriceBuckets(filters.max_price).length;
+ const sourcePages=Object.keys(pageCounts).length===bucketCount?Object.values(pageCounts).reduce((sum,n)=>sum+n,0):null;
  return {trace,items,catalogue:{source:'淘手游',page:round,next_page:nextCursor.length?round+1:null,
-  next_cursor:nextCursor,source_pages:firstPageCounts}};
+  next_cursor:nextCursor,source_pages:sourcePages,source_page_counts:pageCounts,source_bucket_count:bucketCount}};
 }
 
 async function pzdsDeltaPreview(game){
