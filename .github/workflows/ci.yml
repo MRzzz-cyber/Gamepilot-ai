@@ -13,7 +13,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
-      - run: npm run check
       - name: Probe DD373 public listing markup (one request, no Brave)
         run: node scripts/probe-dd373.mjs
         continue-on-error: true
+      - run: npm run check
