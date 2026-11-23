@@ -1,3 +1,4 @@
+import {collectPublicListings} from './public-collector.js';
 import {upsertProducts,queryProducts} from './product-index.js';
 // Fail closed: historical and synthetic records are not live inventory.
 const inventory=[];
@@ -978,6 +979,12 @@ if(url.pathname==='/api/verify-lead'&&request.method==='POST'){
   status:verified.status,reason:verified.message||'详情信息不足',
   attributes:attrs,title:attrs.title||verified.page_title||null,checked_at:verified.checked_at||null,
   source:'public_marketplace_detail',steps,duration_ms:Date.now()-start});
+}
+if(url.pathname==='/api/index/collect'&&request.method==='POST'){
+ if(!env.INGEST_SECRET||request.headers.get('Authorization')!=='Bearer '+env.INGEST_SECRET)return json({error:'Unauthorized'},401);
+ let body;try{body=await request.json()}catch{return json({error:'Invalid JSON'},400)}
+ try{return json(await collectPublicListings(env,{maxPages:body.max_pages||2,dryRun:body.dry_run===true}))}
+ catch(e){return json({error:String(e?.message||'collector_failed').slice(0,140)},400)}
 }
 if(url.pathname==='/api/index/stats'&&request.method==='GET'){
  if(!env.PRODUCTS_DB)return json({configured:false,message:'D1 PRODUCTS_DB 未绑定'},503);
