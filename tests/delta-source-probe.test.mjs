@@ -1,6 +1,6 @@
 import test from 'node:test';
 import {spawn} from 'node:child_process';
-import {mkdtempSync} from 'node:fs';
+import {mkdtempSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as pause} from 'node:timers/promises';
@@ -8,15 +8,16 @@ import {setTimeout as pause} from 'node:timers/promises';
 const source='https://www.pzds.com/goodsList/391/6';
 const events=[];
 test('observe the public catalogue controls and pagination',async()=>{
- const p=spawn('google-chrome',['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=39221','--user-data-dir='+mkdtempSync(join(tmpdir(),'pzds-chrome-')),'about:blank'],{stdio:'ignore'});
+ const tmp=mkdtempSync(join(tmpdir(),'pzds-chrome-'));
+ const p=spawn('google-chrome',['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0','--user-data-dir='+tmp,'about:blank'],{stdio:'ignore'});
  p.on('error',e=>console.log('CHROME_ERROR',String(e)));
  let ws;
  try{
   let targets;
-  for(let tries=0;!targets&&tries<30;tries++){
-   try{targets=await (await fetch('http://localhost:39221/json/list')).json();}catch{await pause(200);}
+  for(let tries=0;!targets&&tries<60;tries++){
+   try{const port=readFileSync(join(tmp,'DevToolsActivePort'),'utf8').split('\n')[0];targets=await (await fetch('http://127.0.0.1:'+port+'/json/list')).json();}catch{await pause(200);}
   }
-  if(!targets)return;
+  if(!targets){console.log('CHROME_ERROR no DevTools endpoint');return;}
   ws=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);
   await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
   let id=0;
@@ -51,9 +52,15 @@ test('observe the public catalogue controls and pagination',async()=>{
  }finally{ws?.close();p.kill();}
 });
 
-test('inspect the published catalogue request format',async()=>{
- for(const [script,re,tail] of [['e93ac7f.js',/getGoodsList:function|asyncData:function|goodsTotalNum=/g,5500],['b3d2277.js',/validatePriceRange:function/g,2100]]){
-  const s=await (await fetch('https://oss.pzds.com/pzdspcssr/202611171833/'+script,{signal:AbortSignal.timeout(9000)})).text();
-  for(const x of [...s.matchAll(re)].slice(0,4))console.log('CAT_FORMAT',script,s.slice(Math.max(0,x.index-120),x.index+tail));
+
+test('verify whether the public listing endpoint accepts anonymous searches',async()=>{
+ const endpoint='https://api.pzds.com/api/web-client/v2/public/goodsPublic/page';
+ const action={gameId:'391',goodsCatalogueId:6,conditionSearch:true,minPrice:1,maxPrice:500};
+ for(const page of [1,2]){
+  const r=await fetch(endpoint,{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify({action,page,pageSize:10,order:'ASC',sort:null}),signal:AbortSignal.timeout(9000)});
+  const text=await r.text();
+  let o;try{o=JSON.parse(text)}catch{o={info:text.slice(0,180)}}
+  console.log('PUBLIC_API',JSON.stringify({page,status:r.status,success:o.success,code:o.code,info:o.info,total:o.data?.total,exInfo:o.data?.exInfo,first:o.data?.records?.[0]?Object.keys(o.data.records[0]):null,prices:o.data?.records?.map(d=>[d.price,d.goodsNo])}));
+  if(!r.ok||!o.success)break;
  }
 });
