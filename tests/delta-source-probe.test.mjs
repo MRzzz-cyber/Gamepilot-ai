@@ -1,30 +1,52 @@
 import test from 'node:test';
+import {spawn} from 'node:child_process';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {setTimeout as pause} from 'node:timers/promises';
 
-const origin='https://www.pzds.com', route='/goodsList/391/6';
-const fetchText=async path=>{
- const u=new URL(path,origin);
- const r=await fetch(u,{signal:AbortSignal.timeout(10000),headers:{Accept:'text/html,*/*'}});
- return {status:r.status,text:await r.text()};
-};
-const fragments=(s,re,left=90,right=130,cap=10)=>[...s.matchAll(re)].slice(0,cap).map(m=>s.slice(Math.max(0,m.index-left),m.index+right).replace(/\s+/g,' '));
-test('probe PZDS published catalogue filter and pagination code',async()=>{
- const first=await fetchText(route);
- const scripts=[...new Set([...first.text.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+\.js(?:\?[^"']*)?)["']/gi)].map(m=>new URL(m[1],origin).href))];
- console.log('PZ_SCRIPTS',JSON.stringify(scripts));
- const paths=[...new Set(scripts.filter(p=>{const host=new URL(p).hostname;return host==='pzds.com'||host.endsWith('.pzds.com')}))];
- for(let i=0;i<paths.length;i+=4){
-  await Promise.all(paths.slice(i,i+4).map(async p=>{
-   try{
-    const {text:s}=await fetchText(p);
-    const hints=fragments(s,/\b(?:goodsTotalNum|goodsSearchActions|filterSearchPropertyIds|filterSearchRecord|currentPage)\b|(?:\bquery|\broute)\.(?:page|maxPrice|startPrice|endPrice)|\b(?:maxPrice|minPrice|priceMax|startPrice|endPrice)\s*[:=]/g,100,120,38);
-    if(hints.length)console.log('PZ_BUNDLE',JSON.stringify({p,len:s.length,hints}));
-   }catch(e){console.log('PZ_BUNDLE_ERROR',JSON.stringify({p,error:String(e.cause||e)}));}
-  }));
- }
- for(const params of ['','?currentPage=100','?currentPage=2&maxPrice=500','?page=2&maxPrice=500','?currentPage=2&minPrice=0&maxPrice=500']){
-  const r=await fetchText(route+params);
-  const n=r.text.match(/window\.__NUXT__=([\s\S]*?)<\/script>/)?.[1]||'';
-  const prices=fragments(r.text,/class="newGoodsList_box_pir"/g,0,75,12);
-  console.log('PZ_PAGE',JSON.stringify({params,status:r.status,prices,ids:[...r.text.matchAll(/href="\/goodsDetails\/([^/]+)/g)].map(m=>m[1]).slice(0,10),header:fragments(n,/data:\[\{searchWords:/g,0,350,1)[0],args:n.match(/\}\((.{0,700})/)?.[1],nav:fragments(r.text,/class="[^"]*(?:pagination|pager|btn-next|no-data|empty)[^"]*"/gi,0,135,10)}));
- }
+const source='https://www.pzds.com/goodsList/391/6';
+const events=[];
+test('observe the public catalogue controls and pagination',async()=>{
+ const p=spawn('google-chrome',['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=39221','--user-data-dir='+mkdtempSync(join(tmpdir(),'pzds-chrome-')),'about:blank'],{stdio:'ignore'});
+ p.on('error',e=>console.log('CHROME_ERROR',String(e)));
+ let ws;
+ try{
+  let targets;
+  for(let tries=0;!targets&&tries<30;tries++){
+   try{targets=await (await fetch('http://localhost:39221/json/list')).json();}catch{await pause(200);}
+  }
+  if(!targets)return;
+  ws=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);
+  await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
+  let id=0;
+  const pending=new Map();
+  ws.onmessage=ev=>{
+   const data=JSON.parse(ev.data);
+   if(data.id){pending.get(data.id)?.(data.result);pending.delete(data.id);}
+   else if(data.method?.startsWith('Network.'))events.push(data);
+  };
+  const send=(method,params={})=>new Promise(resolve=>{pending.set(++id,resolve);ws.send(JSON.stringify({id,method,params}));});
+  const evaluate=expr=>send('Runtime.evaluate',{expression:expr,returnByValue:true}).then(x=>x?.result?.value??x?.exceptionDetails?.text);
+  await send('Page.enable');await send('Network.enable');
+  await send('Page.navigate',{url:source});
+  await pause(5500);
+  const summary=()=>evaluate("({title:document.title,url:location.href,cardCount:document.querySelectorAll('a[href*=\"/goodsDetails/\"]').length,ids:[...document.querySelectorAll('a[href*=\"/goodsDetails/\"]')].slice(0,5).map(x=>x.getAttribute('href')),pages:document.querySelector('.el-pagination')?.innerText,boxes:[...document.querySelectorAll('.item-label')].filter(x=>x.textContent.trim()==='价格').map(x=>x.parentElement.outerHTML.slice(0,2100)),paging:document.body.innerText.match(/.{0,20}共\\s*\\d+\\s*条.{0,20}/g)?.slice(0,4)})");
+  console.log('PZ_BROWSER_INITIAL',JSON.stringify(await summary()));
+  console.log('PZ_BROWSER_FILTER_ACTION',await evaluate("(()=>{const box=[...document.querySelectorAll('.item-label')].find(x=>x.textContent.trim()==='价格')?.parentElement;const input=box?.querySelectorAll('input')[1];if(!input)return false;input.focus();input.value='500';input.dispatchEvent(new Event('input',{bubbles:true}));input.blur();input.dispatchEvent(new Event('change',{bubbles:true}));return true})()"));
+  await pause(4200);
+  console.log('PZ_BROWSER_FILTER',JSON.stringify(await summary()));
+  console.log('PZ_BROWSER_PAGE_ACTION',await evaluate("(()=>{const btn=document.querySelector('.el-pagination .btn-next');if(!btn||btn.disabled)return false;btn.click();return true})()"));
+  await pause(3400);
+  console.log('PZ_BROWSER_NEXT',JSON.stringify(await summary()));
+  const relevance = e=>['XHR','Fetch'].includes(e.params.type)&&e.params.request?.url.includes('pzds.com')&&/goods|search|product/i.test(e.params.request.url);
+  for(const e of events.filter(e=>e.method==='Network.requestWillBeSent'&&relevance(e)).slice(0,25)){
+   const {request,requestId}=e.params;
+   const res=events.find(e=>e.method==='Network.responseReceived'&&e.params.requestId===requestId);
+   const body=await send('Network.getResponseBody',{requestId});
+   let shape=null;
+   try{const j=JSON.parse(body?.body);const d=j.data||j.result||j;shape={keys:Object.keys(d),total:d.total??d.count??d.totalCount??null,records:(d.records||d.items||d.list||[]).length};}catch{}
+   console.log('PZ_CATALOG_REQUEST',JSON.stringify({url:request.url,method:request.method,payload:request.postData?.slice(0,1400),status:res?.params.response.status,shape}));
+  }
+ }finally{ws?.close();p.kill();}
 });
