@@ -68,6 +68,10 @@ jobs:
           console.log('DELTA_PRODUCTION',JSON.stringify({first:first.items.length,additional,source_pages:cursor.source_pages,
             paid_requests:(first.search_diagnostics.brave.requests||0)+(second.search_diagnostics.brave.requests||0),
             sample:all.slice(0,3).map(x=>({price:x.price,url:x.url}))}));
+          const sorted=items=>items.every((x,i)=>i===0||items[i-1].price>=x.price);
+          if(cursor.sort!=='price_desc'||first.items[0].price<400||!sorted(first.items)||!sorted(second.items||[])){
+            throw Error('Delta recommendations are not ordered closest to the 500 yuan budget');
+          }
           if(!additional||shown.size!==first.items.length||all.some(x=>!Number.isFinite(x.price)||x.price<=0||x.price>500||!x.price_evidence)||
              first.search_diagnostics.brave.requests||second.search_diagnostics.brave.requests){
             throw Error('Delta pagination, budget or source checks failed');

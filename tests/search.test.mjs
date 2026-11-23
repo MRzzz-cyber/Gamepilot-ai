@@ -515,13 +515,14 @@ test('Delta budget searches use native catalogue pagination and price evidence a
  const query='三角洲500元以内的账号';
  const {status,data:first}=await post(worker,'/api/search',{query,filters:{}});
  assert.equal(status,200);
- assert.deepEqual(first.items.map(x=>x.price),[45,85,500,466]);
+ assert.deepEqual(first.items.map(x=>x.price),[500,466,85,45]);
+ assert.equal(first.listing_page.sort,'price_desc');
  assert.ok(first.items.every(x=>x.price_evidence==='tao_category_visible_price'&&x.status==='unverified'));
  assert.equal(first.listing_page.source_pages,4);
  assert.deepEqual(first.listing_page.next_cursor,[]);
  assert.equal(first.listing_page.next_page,null);
  const {data:chat}=await post(worker,'/api/chat',{message:'三角洲行动500元以内的账号'});
- assert.deepEqual(chat.items.map(x=>x.price),[45,85,500,466]);
+ assert.deepEqual(chat.items.map(x=>x.price),[500,466,85,45]);
  assert.ok(chat.items.every(x=>x.game==='三角洲行动'));
  assert.ok(!calls.some(x=>x.includes('brave.com')||x.includes('/taoid_')));
  const invalid=await post(worker,'/api/search',{query,page:2,cursor:[{bucket:6,page:2}]});
@@ -558,7 +559,7 @@ test('initial Delta search collects over 100 unique priced listings and resumes 
    failures.set(bucket,true);
    return new Response('',{status:503});
   }
-  const cards=Array.from({length:21},(_,i)=>taoCard(82000000+bucket*10000+page*100+i,i===20?'500.01':'280'));
+  const cards=Array.from({length:21},(_,i)=>taoCard(82000000+bucket*10000+page*100+i,i===20?'500.01':bucket===3?'490':'49'));
   cards.push(taoCard(82999999,'290'),taoCard(82888888,'无报价'));
   return new Response(taoFixture(page,bucket===1?2:8,cards.join(''),bucket));
  };
@@ -566,6 +567,8 @@ test('initial Delta search collects over 100 unique priced listings and resumes 
  const query='三角洲500元以内的账号';
  const {data:first}=await post(worker,'/api/chat',{message:query});
  assert.equal(first.items.length,141);
+ assert.deepEqual(first.items.slice(0,3).map(x=>x.price),[490,490,490]);
+ assert.equal(first.items.at(-1).price,49);
  assert.equal(new Set(first.items.map(x=>x.id)).size,first.items.length);
  assert.ok(first.items.every(x=>x.price>0&&x.price<=500&&x.price_evidence==='tao_category_visible_price'));
  assert.ok(first.trace.some(t=>t.result?.http_status===503));
@@ -573,5 +576,6 @@ test('initial Delta search collects over 100 unique priced listings and resumes 
  const {status,data:next}=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
  assert.equal(status,200);
  assert.deepEqual(next.listing_page.next_cursor,[{bucket:2,page:5},{bucket:3,page:4}]);
+ assert.deepEqual(next.items.slice(0,3).map(x=>x.price),[490,490,490]);
  assert.ok(next.items.some(x=>!first.items.some(y=>x.id===y.id)));
 });

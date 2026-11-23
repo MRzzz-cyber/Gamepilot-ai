@@ -702,6 +702,7 @@ function validTaoCursor(cursor,budget,round){
 
 async function taoDeltaListings(game,req,round,cursor){
  const buckets=taoPriceBuckets(req.budget);
+ const closestBucket=buckets.at(-1);
  const initial=round===1;
  const maxRounds=initial?DELTA_INITIAL_MAX_ROUNDS:1;
  const deadline=Date.now()+(initial?DELTA_INITIAL_TIMEOUT_MS:8500);
@@ -709,8 +710,10 @@ async function taoDeltaListings(game,req,round,cursor){
  const pending=new Map(firstPages.map(stream=>[stream.bucket,stream.page]));
  const paused=new Set(),failedAttempts=new Map();
  const items=new Map(),pageCounts={},trace=[];
- let rounds=0,successfulPages=0,pricedMatches=0;
- while(rounds<maxRounds&&pricedMatches<DELTA_INITIAL_PRICED_TARGET){
+ let rounds=0,successfulPages=0,pricedMatches=0,closestBucketMatched=false;
+ while(rounds<maxRounds){
+  const closestBucketPending=pending.has(closestBucket)&&!paused.has(closestBucket);
+  if(pricedMatches>=DELTA_INITIAL_PRICED_TARGET&&(closestBucketMatched||!closestBucketPending))break;
   const active=[...pending].filter(([bucket])=>!paused.has(bucket)).slice(0,DELTA_INITIAL_MAX_SOURCE_REQUESTS-trace.length);
   const remaining=deadline-Date.now();
   if(!active.length||remaining<=0)break;
@@ -735,7 +738,10 @@ async function taoDeltaListings(game,req,round,cursor){
    for(const item of result.items){
     if(items.has(item.id))continue;
     items.set(item.id,item);
-    if(passesSearchFilters(item,req,evaluateCandidate(item,req)))pricedMatches++;
+    if(passesSearchFilters(item,req,evaluateCandidate(item,req))){
+     pricedMatches++;
+     if(bucket===closestBucket)closestBucketMatched=true;
+    }
    }
   }
  }
@@ -771,7 +777,7 @@ async function discover(query,filters,req,env,options={}){
   if(preview){trace.push({tool:'pzds_category',source_url:preview.url,result:{status:preview.status,detail_pages:preview.items.length,priced:preview.items.filter(x=>x.price!=null).length}});}
   if(feed.catalogue){
    return {candidates:[...feed.items,...(preview?.items||[])],trace,reason:'marketplace_page',
-    listingPage:{...feed.catalogue,query}};
+    listingPage:{...feed.catalogue,query,sort:'price_desc'}};
   }
   if(page>1)return {candidates:[],trace,reason:'marketplace_page_unavailable',pageError:true};
   for(const item of preview?.items||[])results.set(item.url,item);
@@ -976,11 +982,12 @@ async function agentSearchListings(query,args,env,options={}){
  const editionSafe=enriched.filter(x=>!x.detail_game||x.detail_game===game?.name); // DEMO: version is not a hard filter.
  const editionRejected=enriched.length-editionSafe.length;
  stages.push({stage:'edition_filter',count:editionSafe.length,rejected:editionRejected,skipped:true,reason:'demo_version_filter_disabled'});
+ const sortByBudget=isDeltaGame(game?.name);
  const items=editionSafe
   .filter(x=>(x.game_confirmed||x.detail_game===game?.name)&&!['sold','stale','wrong_game','game_unconfirmed'].includes(x.status))
   .map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null}))
   .filter(x=>passesSearchFilters(x,req,x.requirement_evaluation))
-  .sort((a,b)=>(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0))
+  .sort((a,b)=>(sortByBudget?b.price-a.price:0)||(b.requirement_evaluation?.score||0)-(a.requirement_evaluation?.score||0))
   .slice(0,discovery.listingPage?undefined:20)
   .map(x=>{
    const detailPrice=/^(?:detail_|gmmsj_detail_)/.test(x.price_evidence||'');
@@ -1087,7 +1094,7 @@ async function watchPrice(raw,env){
  if(env.PRICE_HISTORY&&current){try{history.push(current);await env.PRICE_HISTORY.put(key,JSON.stringify(history.slice(-30)),{expirationTtl:60*60*24*90})}catch{return {url:u.href,current,previous,change,history_saved:false,warning:'历史价格保存失败',status:checked.status}}}
  return {url:u.href,current,previous,change,history_saved:!!env.PRICE_HISTORY&&!!current,history_points:history.length,availability:checked.status,updated_at:checked.updated_at||null,warning:!validPrice?'当前详情页无可信价格，或商品已售出/过期；不生成价格变化':!env.PRICE_HISTORY?'未绑定 PRICE_HISTORY KV，当前仅支持即时价格检查':'历史价格为此前检查时的快照，并非连续实时监控'};
 }
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-delta-initial-priced-listings',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-delta-closest-budget-first',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
  const cases=[
   ['帮我找一个鸣潮账号 2000元以内','鸣潮'],
   ['搜索《崩坏：星穹铁道》账号 1500元以内','崩坏：星穹铁道'],
