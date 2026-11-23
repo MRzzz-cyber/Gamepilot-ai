@@ -630,3 +630,77 @@ test('wide Delta search samples later pages when the closest tier starts with so
  assert.equal(data.items.filter(item=>item.price>=700).length,96);
  assert.deepEqual(data.listing_page.next_cursor.find(x=>x.bucket===4),{bucket:4,page:1,read_pages:[4,5,6,7,8,9]});
 });
+
+
+test('DNF aliases use the desktop catalogue for priced chat results and independent search pages',async()=>{
+ const calls=[];
+ const mock=async(input,init)=>{
+  const url=new URL(input);
+  if(url.hostname==='www.pzds.com'){
+   assert.equal(url.pathname,'/goodsList/13/6');
+   return new Response('unavailable',{status:503});
+  }
+  assert.equal(url.hostname,'www.sanlewang.com');
+  assert.equal(url.pathname,'/Mian/GetAccounts_BSTable');
+  assert.equal(url.searchParams.get('Gm'),'地下城与勇士');
+  assert.equal(init.method,'POST');
+  assert.equal(init.body.get('price'),'1-1000');
+  assert.equal(init.body.get('limit'),'20');
+  const offset=Number(init.body.get('offset'));
+  calls.push(offset);
+  const data=Array.from({length:20},(_,i)=>({
+   Gameid:'JD'+(12000+offset+i),gamename:'DNF',title:'DNF 成品号 '+(offset+i),
+   showprice:900+i,servername:'广西1区',crossname:'跨一',rolename:'阿修罗',display_unused:'SOURCE_ONLY'
+  }));
+  if(offset===0){
+   data[0].showprice=1000.01;
+   data[1].title='地下城与勇士：起源手游';
+   data[2].gamename='DNF 手游';
+   data[3].is_del='1';
+  }
+  return Response.json({code:'200',count:400,data});
+ };
+ const {worker}=factory(mock,URL,Response,AbortSignal);
+ const query='地下城勇士 1000 元的账号';
+ const {status,data:first}=await post(worker,'/api/chat',{message:query});
+ assert.equal(status,200);
+ assert.equal(first.requirements.game,'地下城与勇士');
+ assert.equal(first.items.length,116);
+ assert.deepEqual(calls,[0,20,40,60,80,100]);
+ assert.equal(first.listing_page.source,'三乐网');
+ assert.equal(first.listing_page.sort,'price_desc');
+ assert.equal(first.listing_page.source_pages,20);
+ assert.equal(first.search_diagnostics.brave.requests,0);
+ const firstIds=new Set(first.items.map(x=>x.id));
+ assert.equal(firstIds.size,first.items.length);
+ assert.ok(first.items.every((x,i)=>x.game==='地下城与勇士'&&x.price<=1000&&
+  x.price_evidence==='sanle_category_visible_price'&&x.price_audit.is_realtime===false&&
+  x.status==='unverified'&&x.server==='跨一 · 广西1区'&&x.key_attributes.profession==='阿修罗'&&
+  (i===0||first.items[i-1].price>=x.price)));
+ assert.ok(['JD12000','JD12001','JD12002','JD12003'].every(id=>!firstIds.has('sanlewang.com:'+id)));
+ assert.ok(!JSON.stringify(first).includes('SOURCE_ONLY'));
+ const next=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
+ assert.equal(next.status,200);
+ assert.equal(next.data.items.length,20);
+ assert.ok(next.data.items.every(x=>!firstIds.has(x.id)&&/^https:\/\/www\.sanlewang\.com\/dnf\/details\/JD\d+$/.test(x.url)));
+ assert.equal(calls.at(-1),120);
+});
+
+test('universal smoke distinguishes game aliases, editions, native feeds, and index fallback',async()=>{
+ const {worker}=factory(async()=>{throw Error('offline plan checks should not fetch');},URL,Response,AbortSignal);
+ const response=await worker.fetch({method:'GET',url:'https://gamepilot.example/api/universal-smoke'},{});
+ const smoke=await response.json();
+ assert.equal(smoke.passed,true,JSON.stringify(smoke.checks.filter(x=>!x.passed)));
+ for(const [query,game,source] of [
+  ['地下城勇士 1000 元的账号','地下城与勇士','三乐网'],
+  ['DNF端游1000元以内的账号','地下城与勇士','三乐网'],
+  ['DNF手游1000元以内的账号','DNF手游',null],
+  ['1000元以内的三角洲账号','三角洲','淘手游'],
+  ['找500元的明日方舟账号','明日方舟',null]
+ ]){
+  const match=smoke.checks.find(x=>x.query===query);
+  assert.equal(match.game,game);
+  assert.equal(match.paged_marketplace,source);
+  assert.ok(match.queries>0);
+ }
+});
