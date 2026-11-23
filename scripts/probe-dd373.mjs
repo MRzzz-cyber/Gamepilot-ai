@@ -17,6 +17,6 @@ for(const [name,u] of [
  try{
   const res=await fetch(u,{signal:AbortSignal.timeout(12000),headers:{Accept:'text/html','User-Agent':'GamePilotPublicIndexer/1.0'}});
   const html=(await res.text()).slice(0,2000000);
-  console.log('PZDS_PROBE',JSON.stringify({name,status:res.status,bytes:html.length,details:(html.match(/goodsDetails\/[A-Z0-9]+\/6/g)||[]).length,priceTokens:(html.match(/money-count|¥|￥/g)||[]).length,challenge:/人机验证|访问验证|captcha|Access Denied|Just a moment/i.test(html.slice(0,10000)),sample:name==='pzds_delta_list'?(html.match(/<a\\b[^>]*href=[\"']\\/goodsDetails\\/[A-Z0-9]+\\/6[\"'][^>]*>[\\s\\S]{0,1700}/i)?.[0]||html.slice(0,200)):html.slice(0,200)}));
+  console.log('PZDS_PROBE',JSON.stringify({name,status:res.status,bytes:html.length,details:(html.match(/goodsDetails\/[A-Z0-9]+\/6/g)||[]).length,priceTokens:(html.match(/money-count|¥|￥/g)||[]).length,challenge:/人机验证|访问验证|captcha|Access Denied|Just a moment/i.test(html.slice(0,10000)),sample:html.slice(Math.max(0,html.indexOf('goodsDetails/')-500),Math.max(0,html.indexOf('goodsDetails/')-500)+1900)}));
  }catch(e){console.log('PZDS_PROBE_ERROR',name,String(e).slice(0,180))}
 }
