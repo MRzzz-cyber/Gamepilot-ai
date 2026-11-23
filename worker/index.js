@@ -640,6 +640,7 @@ const DELTA_INITIAL_PRICED_TARGET=110;
 const DELTA_INITIAL_MAX_ROUNDS=9;
 const DELTA_INITIAL_MAX_SOURCE_REQUESTS=42;
 const DELTA_INITIAL_TIMEOUT_MS=24000;
+const DELTA_NEAR_BUDGET_WINDOW=9;
 const TAO_DELTA='https://www.taoshouyou.com/game/sanjiaozhouxingdong-36881-0-0';
 const TAO_BUCKET_MINIMUMS=[0,50,100,500,1000,2000];
 const TAO_PAGE_QUERY='?quotaid=0&isinsurance=0&isCertificationShop=2&isActivity=0&tags=&isPreviewRank=0&bornType=-1&popularize=0&antiAddictionStatus=0';
@@ -719,8 +720,8 @@ function validTaoCursor(cursor,budget,round){
  return Array.isArray(cursor)&&cursor.length>0&&cursor.length<=buckets.length&&
   new Set(cursor.map(x=>x?.bucket)).size===cursor.length&&cursor.every(x=>
    buckets.includes(x?.bucket)&&Number.isSafeInteger(x.page)&&x.page>=1&&x.page<=round&&
-   (x.read_pages===undefined||(Array.isArray(x.read_pages)&&x.read_pages.length<=4&&
-    x.read_pages.every(page=>Number.isSafeInteger(page)&&page>x.page&&page<=x.page+4))));
+   (x.read_pages===undefined||(Array.isArray(x.read_pages)&&x.read_pages.length<DELTA_NEAR_BUDGET_WINDOW&&
+    x.read_pages.every(page=>Number.isSafeInteger(page)&&page>x.page&&page<=x.page+DELTA_NEAR_BUDGET_WINDOW-1))));
 }
 
 async function taoDeltaListings(game,req,round,cursor){
@@ -760,16 +761,27 @@ async function taoDeltaListings(game,req,round,cursor){
   else pending.delete(bucket);
  }
  if(wideSearch){
-  // Read several public pages in the closest tier even when its first page is temporarily unavailable.
-  const pages=await Promise.all([1,2,3,4,5].map(page=>taoDeltaPage(game,closestBucket,page,6500)));
+  // Independent requests prevent a temporarily unavailable page from hiding the whole price tier.
   const read=new Set();
-  for(const [i,result] of pages.entries()){
-   addSourcePage(closestBucket,result);
-   if(i>0&&result.items&&result.nextPage)read.add(i+1);
-  }
   readAhead.set(closestBucket,read);
-  if(pages[0].items)advance(closestBucket,pages[0].nextPage);
-  if(pages.some(x=>[403,429].includes(x.trace.result.http_status)))paused.add(closestBucket);
+  async function readClosestPages(pageNumbers){
+   const remaining=deadline-Date.now();
+   if(!pageNumbers.length||remaining<=0)return [];
+   const results=await Promise.all(pageNumbers.map(page=>taoDeltaPage(game,closestBucket,page,Math.min(6500,remaining))));
+   for(const [i,result] of results.entries()){
+    addSourcePage(closestBucket,result);
+    const page=pageNumbers[i];
+    if(page>1&&result.items&&result.nextPage)read.add(page);
+   }
+   if(results.some(x=>[403,429].includes(x.trace.result.http_status)))paused.add(closestBucket);
+   return results;
+  }
+  const [first]=await readClosestPages([1,2,3,4,5]);
+  const last=Math.min(pageCounts[closestBucket]||0,DELTA_NEAR_BUDGET_WINDOW);
+  if(nearMatches<40&&!paused.has(closestBucket)){
+   await readClosestPages(Array.from({length:Math.max(0,last-5)},(_,i)=>i+6));
+  }
+  if(first?.items)advance(closestBucket,first.nextPage);
  }
  while(rounds<maxRounds){
   const closestPending=pending.has(closestBucket)&&!paused.has(closestBucket);
