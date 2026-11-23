@@ -1,19 +1,28 @@
 import test from 'node:test';
-const base='https://www.taoshouyou.com/game/sanjiaozhouxingdong-36881-0-0';
-const get=async url=>{const r=await fetch(url,{signal:AbortSignal.timeout(10000),headers:{Accept:'text/html'}});return {status:r.status,url:r.url,h:await r.text()};};
-const around=(h,k,l=120,r=550)=>{const i=h.indexOf(k);return i<0?'':h.slice(Math.max(0,i-l),i+r).replace(/\s+/g,' ');};
-const display=(label,s)=>{
- const nav=[...s.h.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>\s*(下一页|末页|尾页|首页|\d+)\s*<\/a>/g)].slice(-14).map(m=>[m[2],m[1]]);
- const ids=[...new Set([...s.h.matchAll(/href="\/taoid_(\d+)\.html"/g)].map(m=>m[1]))];
- const priceFilter=(s.h.match(/<div class="[^"]*price-area[^"]*">([\s\S]{0,9000}?)(?=<div class="item flex">)/)||[])[1];
- console.log('TAO_PAGING',JSON.stringify({label,status:s.status,url:s.url,nav,ids:ids.slice(0,20),totalPages:around(s.h,'总共',80,130),cards:around(s.h,'href="/taoid_',450,2200),price:around(s.h,'acc-price',100,250),priceFilter:priceFilter?.slice(0,4200),seo:around(s.h,'235?',150,250)}));
- return nav;
-};
-test('validate Tao marketplace card, budget filter and true page controls',async()=>{
- const first=await get(base);
- const nav=display('first',first);
- const links=[...first.h.matchAll(/data-href="([^"]+)"[^>]*>\s*(0-50元|50-100元|100-500元)\s*<\/div>/g)].map(m=>[m[2],m[1]]);
- console.log('TAO_FILTERS',JSON.stringify(links));
- const next=nav.find(x=>x[0]==='下一页');
- for(const [label,href] of [...links,...(next?[next]:[])])display(label,await get(new URL(href,base).href));
+import assert from 'node:assert/strict';
+import worker from '../worker/index.js';
+test('validate real Delta catalogue pages with a 500 yuan limit and no Brave key',async()=>{
+ const query='三角洲500元以内的账号';
+ const run=async (path,body)=>{
+  const req=new Request('https://gamepilot.example'+path,{method:'POST',body:JSON.stringify(body)});
+  const res=await worker.fetch(req,{});
+  const d=await res.json();
+  console.log('DELTA_FIX',JSON.stringify({status:res.status,page:body.page||1,count:d.items?.length,price:d.items?.slice(0,3).map(x=>x.price),ids:d.items?.slice(0,3).map(x=>x.id),listing:d.listing_page,trace:d.trace?.map(t=>[t.tool,t.result]),error:d.error}));
+  assert.equal(res.status,200);
+  assert.ok(d.items.every(x=>x.price>0&&x.price<=500));
+  assert.equal(new Set(d.items.map(x=>x.id)).size,d.items.length);
+  return d;
+ };
+ const a=await run('/api/chat',{message:query});
+ assert.ok(a.items.length>=10);
+ assert.ok(a.listing_page?.next_page>1);
+ assert.equal(a.search_diagnostics.brave.requests,0);
+ const b=await run('/api/search',{query,page:a.listing_page.next_page,cursor:a.listing_page.next_cursor});
+ const already=new Set(a.items.map(x=>x.id));
+ assert.ok(b.items.filter(x=>!already.has(x.id)).length>=5);
+ const range=a.trace.find(t=>t.result?.bucket===3)?.result?.page_count;
+ if(range>=20){
+  const deep=await run('/api/search',{query,page:20,cursor:[{bucket:3,page:20}]});
+  assert.ok(deep.items.some(x=>!already.has(x.id)));
+ }
 });
