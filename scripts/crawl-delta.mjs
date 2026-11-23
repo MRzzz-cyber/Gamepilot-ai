@@ -27,7 +27,7 @@ for(let n=start;n<start+maxPages;n++){
  if(n<start+maxPages-1)await new Promise(r=>setTimeout(r,900));
 }
 await mkdir('artifacts',{recursive:true});
-const summary={source:'pzds.com/goodsList/391/6',game:'三角洲行动',requested_pages:maxPages,start_page:start,visited_pages:pages.length,unique_products:products.size,brave_requests:0,llm_requests:0,fetched_at:fetchedAt,pages};
+const summary={source:'pzds.com/goodsList/391/6',game:'三角洲行动',requested_pages:maxPages,start_page:start,visited_pages:pages.length,unique_products:products.size,under_500:[...products.values()].filter(x=>x.price<=500).length,brave_requests:0,llm_requests:0,fetched_at:fetchedAt,pages};
 await writeFile('artifacts/delta-force-index.json',JSON.stringify([...products.values()],null,2));
 await writeFile('artifacts/delta-force-summary.json',JSON.stringify(summary,null,2));
 console.log('DELTA_CRAWL_SUMMARY',JSON.stringify(summary));
