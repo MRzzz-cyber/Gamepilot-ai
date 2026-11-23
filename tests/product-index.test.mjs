@@ -25,14 +25,14 @@ test('index query caps page size and filters budget in SQL',async()=>{
  assert.deepEqual(calls[1].args,['三角洲行动',500,500,0]);
 });
 
-test('PZDS Delta Force SSR cards extract same-card prices, reject sold and over-budget cards',()=>{
+test('PZDS Delta Force SSR cards extract same-card prices and reject sold cards',()=>{
  const html='<title>三角洲行动 商品列表</title>'+
  '<a href="/goodsDetails/SA12345/6"><div class="game-title">SA12345号 总资产 80M</div><div>三角洲行动-QQ</div><span>¥</span><span>399</span></a>'+
  '<a href="/goodsDetails/SA23456/6"><div class="game-title">SA23456号 总资产 90M</div><span>¥</span><span>888</span></a>'+
  '<a href="/goodsDetails/SA34567/6"><div class="game-title">SA34567号 已售出</div><span>¥</span><span>450</span></a>';
  const rows=parsePzdsDeltaListing(html);
- assert.equal(rows.length,1);
- assert.equal(rows[0].price,399);
+ assert.equal(rows.length,2);
+ assert.deepEqual(rows.map(x=>x.price),[399,888]);
  assert.equal(rows[0].id,'pzds.com:SA12345');
  assert.equal(rows[0].server,'QQ');
 });
