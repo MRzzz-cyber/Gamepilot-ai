@@ -4,13 +4,19 @@ import {parsePzdsDeltaListing} from '../worker/public-collector.js';
 import {mkdir,writeFile} from 'node:fs/promises';
 const maxPages=Math.min(Math.max(Number(process.env.PAGES||5),1),10);
 const start=Math.min(Math.max(Number(process.env.START_PAGE||1),1),1000);
+async function fetchWithOneRetry(url){
+ for(let attempt=0;attempt<2;attempt++){
+  try{return await fetch(url,{signal:AbortSignal.timeout(15000),headers:{Accept:'text/html','User-Agent':'GamePilotPublicIndexer/1.0'}})}
+  catch(e){if(attempt===1)throw e;await new Promise(r=>setTimeout(r,1000))}
+ }
+}
 const products=new Map(),pages=[],fetchedAt=new Date().toISOString();
 let repeated=0,priorFingerprint='';
 for(let n=start;n<start+maxPages;n++){
  const url='https://www.pzds.com/goodsList/391/6?page='+n;
  let status=0,rows=[],error=null,pageMarker=null;
  try{
-  const res=await fetch(url,{signal:AbortSignal.timeout(15000),headers:{Accept:'text/html','User-Agent':'GamePilotPublicIndexer/1.0'}});
+  const res=await fetchWithOneRetry(url);
   status=res.status;
   if(!res.ok){error='HTTP_'+status;break}
   const html=(await res.text()).slice(0,1800000);
