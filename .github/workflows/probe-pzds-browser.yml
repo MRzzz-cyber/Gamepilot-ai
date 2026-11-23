@@ -1,5 +1,11 @@
 name: Diagnose PZDS real browser pagination (no Brave)
 on:
+  push:
+    branches:
+      - feat/delta-bulk-index-20261123
+    paths:
+      - "scripts/probe-pzds-browser.mjs"
+      - ".github/workflows/probe-pzds-browser.yml"
   pull_request:
     paths:
       - "scripts/probe-pzds-browser.mjs"
