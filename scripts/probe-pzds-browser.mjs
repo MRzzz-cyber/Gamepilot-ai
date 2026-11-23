@@ -5,8 +5,8 @@ const calls=[];
 page.on('request',r=>{
  try{
   const u=new URL(r.url());
-  if(!u.hostname.endsWith('pzds.com')||r.resourceType()==='document'||r.resourceType()==='image'||r.resourceType()==='script'||r.resourceType()==='stylesheet')return;
-  if(calls.length>=40)return;
+  if(!u.hostname.endsWith('pzds.com')||!u.pathname.startsWith('/api/')||u.pathname.includes('/monitor/')||r.resourceType()==='document'||r.resourceType()==='image'||r.resourceType()==='script'||r.resourceType()==='stylesheet')return;
+  if(calls.length>=80)return;
   let payload={};
   try{const j=JSON.parse(r.postData()||'{}');payload={keys:Object.keys(j),page:j.page??j.pageNum??j.currentPage??null,actionKeys:Object.keys(j.action||{})}}catch{}
   calls.push({path:u.pathname,method:r.method(),payload});
@@ -15,9 +15,15 @@ page.on('request',r=>{
 try{
  await page.goto('https://www.pzds.com/goodsList/391/6',{waitUntil:'domcontentloaded',timeout:30000});
  await page.waitForTimeout(3500);
- const getIds=()=>page.locator('a[href*="/goodsDetails/"]').evaluateAll(xs=>[...new Set(xs.map(x=>x.getAttribute('href')?.match(/goodsDetails\/([^/]+)/)?.[1]).filter(Boolean))].slice(0,15));
+ const getIds=()=>page.locator('a[href*="/goodsDetails/"]').evaluateAll(xs=>[...new Set(xs.map(x=>x.getAttribute('href')?.match(/goodsDetails\/([^/]+)/)?.[1]).filter(Boolean))]);
  const first=await getIds();
  console.log('PZDS_BROWSER_PAGE1',JSON.stringify({count:first.length,ids:first.slice(0,5),url:page.url()}));
+ for(let i=0;i<5;i++){
+  await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight));
+  await page.waitForTimeout(1400);
+  const ids=await getIds();
+  console.log('PZDS_BROWSER_SCROLL',JSON.stringify({step:i+1,count:ids.length,first:ids.slice(0,3),last:ids.slice(-3)}));
+ }
  const next=page.locator('.el-pagination .btn-next, .pagination .next, button[aria-label="Next"]').first();
  if(await next.count()&&await next.isVisible()&&!await next.isDisabled()){
   await next.click({timeout:6000});await page.waitForTimeout(3500);
