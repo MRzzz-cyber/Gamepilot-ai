@@ -21,3 +21,21 @@ test('inspect official DNF desktop marketplace listings and public pagination',a
   }catch(e){console.log('DNF_SOURCE',JSON.stringify({u,error:String(e.cause||e)}));}
  }));
 });
+
+test('inspect the public DNF listing request contract',async()=>{
+ const urls=['https://shua688.com/dnf/goods/index.html','https://shua688.com/dnf/goods/index/sort/price_asc.html','https://www.sanlewang.com/dnf'];
+ for(const url of urls){
+  try{
+   const response=await fetch(url,{signal:AbortSignal.timeout(11000)});
+   const s=await response.text();
+   const endpoints=[...s.matchAll(/.{0,75}(?:fetch\(|axios|\.ajax|\/api\/|max_price|price_max|next_page|pageSize|\$http|getGoodsList).{0,95}/gi)].slice(0,44).map(m=>m[0]);
+   const scriptUrls=[...new Set([...s.matchAll(/<script\b[^>]*src=["']([^"']+)/gi)].map(x=>new URL(x[1],url).href))].filter(x=>new URL(x).hostname===new URL(url).hostname);
+   console.log('DNF_SEARCH_HTML',JSON.stringify({url,status:response.status,bytes:s.length,endpoints,form:[...s.matchAll(/<form[^>]*>|<input[^>]*name=["'](?:price\w*|\w*price|page|sort)["'][^>]*>/gi)].map(m=>m[0]).slice(0,16),scripts:scriptUrls}));
+   for(const src of scriptUrls.filter(x=>/dnf|goods|index|search/i.test(new URL(x).pathname)).slice(0,4)){
+    const js=await (await fetch(src,{signal:AbortSignal.timeout(8000)})).text();
+    const hits=[...js.matchAll(/.{0,65}(?:fetch\(|axios|\.ajax|\/api\/|max_price|price_max|next_page|pageSize|getGoodsList).{0,95}/gi)].slice(0,30).map(m=>m[0]);
+    console.log('DNF_SEARCH_SCRIPT',JSON.stringify({src,hits}));
+   }
+  }catch(e){console.log('DNF_SEARCH_HTML',JSON.stringify({url,error:String(e.cause||e)}));}
+ }
+});
