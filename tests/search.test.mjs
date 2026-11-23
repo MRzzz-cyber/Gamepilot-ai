@@ -1,9 +1,11 @@
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {upsertProducts,queryProducts} from '../worker/product-index.js';
+import {collectPublicListings} from '../worker/public-collector.js';
 
 const source=readFileSync(new URL('../worker/index.js',import.meta.url),'utf8');
-const factory=new Function('fetch','URL','Response','AbortSignal',source.replace('export default {','const worker = {')+
+const factory=new Function('fetch','URL','Response','AbortSignal','upsertProducts','queryProducts','collectPublicListings',source.replace(/^import .*;\n/gm,'').replace('export default {','const worker = {')+
  ';return {worker,resolveGame,interpretIntent,genericGameEvidence,searchPlans,extractPrice,gmmsjDetail,isProductPage}');
 
 function runtime(){
@@ -40,7 +42,7 @@ function runtime(){
   }
   throw Error('Unexpected fetch '+url);
  };
- return {...factory(mockFetch,URL,Response,AbortSignal),calls};
+ return {...factory(mockFetch,URL,Response,AbortSignal,upsertProducts,queryProducts,collectPublicListings),calls};
 }
 async function post(worker,path,payload,extraEnv={}){
  const res=await worker.fetch({method:'POST',url:'https://gamepilot.example'+path,json:async()=>payload},{BRAVE_SEARCH_API_KEY:'test',...extraEnv});
