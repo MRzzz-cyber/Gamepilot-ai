@@ -39,7 +39,7 @@ export function parsePzdsDeltaListing(html){
   const plain=clean(card);
   if(/已售出|已下架|商品已售/.test(plain))continue;
   const amount=[...plain.matchAll(/[¥￥]\s*([1-9][\d,]{0,8}(?:\.\d{1,2})?)/g)].map(m=>Number(m[1].replace(/,/g,'')));
-  const unique=[...new Set(amount)].filter(n=>n>=1&&n<=500);
+  const unique=[...new Set(amount)].filter(n=>n>=1&&n<=10000000);
   if(unique.length!==1)continue;
   const title=clean(card.match(/class=["'][^"']*(?:game-title|goods-title|account-title)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]||'');
   const fallback=plain.slice(0,160);
