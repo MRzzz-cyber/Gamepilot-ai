@@ -657,7 +657,7 @@ async function taoDeltaPage(game,bucket,page){
  const trace={tool:'discover_taoshouyou.com',source_url:url,result:{bucket,page,detail_pages:0}};
  const result=trace.result;
  try{
-  const response=await fetch(url,{signal:AbortSignal.timeout(8500),redirect:'error',headers:{Accept:'text/html'}});
+  const response=await fetch(url,{signal:AbortSignal.timeout(8500),redirect:'manual',headers:{Accept:'text/html'}});
   if(!response.ok){Object.assign(result,{status:'http_error',http_status:response.status});return {trace};}
   const html=(await response.text()).slice(0,650000);
   const title=html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]||'';
@@ -717,7 +717,7 @@ async function taoDeltaListings(game,filters,round,cursor){
 async function pzdsDeltaPreview(game){
  const url='https://www.pzds.com/goodsList/391/6';
  try{
-  const response=await fetch(url,{signal:AbortSignal.timeout(8500),redirect:'error',headers:{Accept:'text/html'}});
+  const response=await fetch(url,{signal:AbortSignal.timeout(8500),redirect:'manual',headers:{Accept:'text/html'}});
   if(!response.ok)return {url,items:[],status:'http_'+response.status};
   const html=(await response.text()).slice(0,850000);
   const title=html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]||'';
