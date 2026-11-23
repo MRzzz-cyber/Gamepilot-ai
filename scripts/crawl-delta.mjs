@@ -23,16 +23,16 @@ for(let n=start;n<start+maxPages;n++){
   if(/captcha|人机验证|访问验证|Access Denied|Just a moment/i.test(html.slice(0,15000))){error='access_challenge_stop';break}
   pageMarker=html.match(/&quot;page&quot;:(\d+)/)?.[1]||null;
   if(n===start){
-   const scriptUrls=[...html.matchAll(/<script[^>]*src=["']([^"']+\.js)["']/gi)].map(m=>m[1]);
+   const scriptUrls=[...new Set([...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)=["'](https:\/\/oss\.pzds\.com\/pzdspcssr\/[^"']+\.js)["']/gi)].map(m=>m[1]))];
    console.log('PZDS_SCRIPTS',JSON.stringify(scriptUrls.slice(-18)));
    const nuxtAt=html.indexOf('window.__NUXT__');
    console.log('PZDS_NUXT',JSON.stringify(nuxtAt>=0?html.slice(nuxtAt,nuxtAt+900):'missing'));
    if(process.env.INSPECT_ASSETS==='true'){
-    for(const asset of scriptUrls.slice(-22)){
+    for(const asset of scriptUrls.slice(0,40)){
      try{
       const res=await fetch(asset,{signal:AbortSignal.timeout(12000)});
       const code=(await res.text()).slice(0,2500000);
-      const hits=[...code.matchAll(/getGoodsList|goodsList|goodsListV2|currentPage|pageSize|goodsSearch|goods\/list|sieveList|sieve_list|queryGoods|goodsCatalogueId|goodsListQuery/gi)].slice(0,5).map(m=>code.slice(Math.max(0,m.index-140),Math.min(code.length,m.index+220)));
+      const hits=[...code.matchAll(/getGoodsList|getGoodsPage|goodsPage|goodsList|goodsListV2|goodsSearch|sieveList|sieve_list|queryGoods|searchGoods|listGoods|filterGoods|goodsCatalogueId/gi)].slice(0,2).map(m=>code.slice(Math.max(0,m.index-140),Math.min(code.length,m.index+220)));
       console.log('PZDS_JS_PROBE',JSON.stringify({asset,size:code.length,hits}));
      }catch(e){console.log('PZDS_JS_ERROR',asset,String(e?.name||'error'))}
     }
