@@ -1,14 +1,19 @@
 import test from 'node:test';
-const ldds='https://m.ldds.com/pages/buy/list?gameId=95683';
-const tao='https://www.taoshouyou.com/game/sanjiaozhouxingdong-36881-0-0';
-const contexts=(h,re,l=80,r=160,n=5)=>[...h.matchAll(re)].slice(0,n).map(x=>h.slice(Math.max(0,x.index-l),x.index+r).replace(/\s+/g,' '));
-const inspect=async (name,url)=>{
- try{
-  const r=await fetch(url,{signal:AbortSignal.timeout(10000),headers:{Accept:'text/html'}});
-  const h=await r.text(),items=[...h.matchAll(/<a\b[^>]*href=["']([^"']*(?:\/pages\/buy\/item\?id=|\/taoid_)[^"']*)["'][^>]*>[\s\S]{0,6000}?<\/a>/g)];
-  console.log('ALTERNATE',JSON.stringify({name,url,status:r.status,final:r.url,size:h.length,title:h.match(/<title[^>]*>([\s\S]{1,200}?)<\/title>/i)?.[1],counts:contexts(h,/在售账号（共|总共|下一页|价格区间/g),items:items.slice(0,2).map(m=>m[0].slice(0,520)),prices:items.map(x=>[x[1],x[0].match(/[¥￥]\s*(?:<[^>]+>\s*)?(\d+(?:\.\d{1,2})?)/)?.[1]]),scripts:contexts(h,/<script\b[^>]*src=/g,0,300,8),challenge:h.slice(0,200)}));
- }catch(e){console.log('ALTERNATE',JSON.stringify({name,url,error:String(e.cause||e)}));}
+const base='https://www.taoshouyou.com/game/sanjiaozhouxingdong-36881-0-0';
+const get=async url=>{const r=await fetch(url,{signal:AbortSignal.timeout(10000),headers:{Accept:'text/html'}});return {status:r.status,url:r.url,h:await r.text()};};
+const around=(h,k,l=120,r=550)=>{const i=h.indexOf(k);return i<0?'':h.slice(Math.max(0,i-l),i+r).replace(/\s+/g,' ');};
+const display=(label,s)=>{
+ const nav=[...s.h.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>\s*(下一页|末页|尾页|首页|\d+)\s*<\/a>/g)].slice(-14).map(m=>[m[2],m[1]]);
+ const ids=[...new Set([...s.h.matchAll(/href="\/taoid_(\d+)\.html"/g)].map(m=>m[1]))];
+ const priceFilter=(s.h.match(/<div class="[^"]*price-area[^"]*">([\s\S]{0,9000}?)(?=<div class="item flex">)/)||[])[1];
+ console.log('TAO_PAGING',JSON.stringify({label,status:s.status,url:s.url,nav,ids:ids.slice(0,20),totalPages:around(s.h,'总共',80,130),cards:around(s.h,'href="/taoid_',450,2200),price:around(s.h,'acc-price',100,250),priceFilter:priceFilter?.slice(0,4200),seo:around(s.h,'235?',150,250)}));
+ return nav;
 };
-test('check native pagination on alternative marketplace sources',async()=>{
- await Promise.all([inspect('ldds1',ldds),inspect('ldds2',ldds+'&page=2'),inspect('ldds-max',ldds+'&maxPrice=500'),inspect('ldds-probe10',ldds+'&page=10'),inspect('tao',tao)]);
+test('validate Tao marketplace card, budget filter and true page controls',async()=>{
+ const first=await get(base);
+ const nav=display('first',first);
+ const links=[...first.h.matchAll(/data-href="([^"]+)"[^>]*>\s*(0-50元|50-100元|100-500元)\s*<\/div>/g)].map(m=>[m[2],m[1]]);
+ console.log('TAO_FILTERS',JSON.stringify(links));
+ const next=nav.find(x=>x[0]==='下一页');
+ for(const [label,href] of [...links,...(next?[next]:[])])display(label,await get(new URL(href,base).href));
 });
