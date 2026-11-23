@@ -745,7 +745,7 @@ async function discover(query,filters,env,options={}){
  }
  if(page>1)return {candidates:[],trace,reason:'unsupported_page',pageError:true};
  // Official first-party listing feeds recover priced products even when Brave indexing fails.
- if(game.name==='王者荣耀'){
+ if(!isDeltaGame(game.name)){
   const pzds=await pzdsCategoryLeads(game,filters);
   for(const item of pzds.items)results.set(item.url,item);
   trace.push({tool:'pzds_category',result:{status:pzds.diagnostic,detail_pages:pzds.items.length,priced:pzds.priced,pages:pzds.pages||0,page_errors:pzds.page_errors||[]}});
