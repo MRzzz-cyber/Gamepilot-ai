@@ -18,3 +18,12 @@ The previous one-Brave-call-per-search design cannot discover a marketplace-scal
 - D1 results are labelled **historical listing price, not verified in-stock**.
 - A count of 0 means **0 imported records**, not **0 listings on the market**.
 - The original live discovery remains a fallback when D1 is not configured.
+
+## Zero-Brave collector (new)
+Set Worker variable `LISTING_SOURCES_JSON` to an array of **verified, permitted public listing URLs**, e.g. `[{"name":"approved-delta-account-pages","pages":["https://www.dd373.com/REPLACE_WITH_VERIFIED_ACCOUNT_LISTING_PAGE"]}]`. Do not use this placeholder literally.
+
+With `INGEST_SECRET` set, call `POST /api/index/collect` with `Authorization: Bearer <secret>` and `{"max_pages":2,"dry_run":true}` first; review `source_results[].parsed` and errors. Then run with `dry_run:false`. Max 3 sources x 5 pages per run, 8s timeout per page, stops at access challenges. Brave and LLM calls: **zero**.
+
+The initial collector **only accepts Product JSON-LD nodes** with the same-node URL, name and price, and a title identifying a Delta Force account. Many marketplace category pages do not expose this markup, so `parsed:0` is expected until a verified platform-specific HTML/JSON adapter is added. No attempt is made to bypass anti-bot or authentication.
+
+This is a low-cost indexing foundation, **not** evidence that 1,000 or 20,000 live accounts have been indexed. Schedule only after source validation, and only if permitted by the site.
