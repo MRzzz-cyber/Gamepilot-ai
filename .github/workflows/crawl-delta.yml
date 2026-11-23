@@ -1,0 +1,31 @@
+name: Crawl Delta Force public listings (no Brave)
+on:
+  pull_request:
+    paths:
+      - "scripts/crawl-delta.mjs"
+      - "worker/public-collector.js"
+      - "worker/product-index.js"
+      - ".github/workflows/crawl-delta.yml"
+  workflow_dispatch:
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Crawl 5 public PZDS pages (0 Brave)
+        run: node scripts/crawl-delta.mjs
+        env:
+          PAGES: 5
+      - name: Upload raw evidence and crawl summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-force-public-listings
+          path: artifacts/delta-force-*.json
+          if-no-files-found: warn
