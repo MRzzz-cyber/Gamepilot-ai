@@ -1,0 +1,21 @@
+name: Diagnose PZDS real browser pagination (no Brave)
+on:
+  pull_request:
+    paths:
+      - "scripts/probe-pzds-browser.mjs"
+      - ".github/workflows/probe-pzds-browser.yml"
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-audit --no-fund playwright
+      - run: npx playwright install chromium --with-deps
+      - name: Observe public category pagination and network paths
+        run: node scripts/probe-pzds-browser.mjs

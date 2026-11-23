@@ -1,3 +1,5 @@
+import {collectPublicListings} from './public-collector.js';
+import {upsertProducts,queryProducts} from './product-index.js';
 // Fail closed: historical and synthetic records are not live inventory.
 const inventory=[];
 const KNOWN_SOLD=new Set(['C8YDZP']);
@@ -610,6 +612,14 @@ async function discover(query,filters,env,options={}){
  // Public category feeds can still discover leads when Brave is missing or rate-limited.
  const trace=[],results=new Map(),categoryPages=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'resolve_game',result:{error:'missing_game_name'}}],reason:'missing_game_name',message:'请提供具体游戏名称，例如「找鸣潮账号」'};
+ // Query persistent indexed inventory first; never mistake an empty index for market scarcity.
+ if(env?.PRODUCTS_DB){
+  try{
+   const indexed=await queryProducts(env.PRODUCTS_DB,{game:game.name==='三角洲'?'三角洲行动':game.name,max_price:Number(filters.max_price)||1000,limit:200});
+   for(const p of indexed.items)results.set(p.url,{...p,id:p.id,platform:p.platform==='dd373.com'?'DD373':p.platform,description:'持久化商品索引（列表标价，需核验实时状态）',price_evidence:'indexed_public_listing',price_source_label:'历史公开列表标价（非实时）',status:'unverified',game_confirmed:true,identity_pending:false,realname:null,skins:null,heroes:null,verification:'已入库商品，非实时库存',discovered_at:p.updated_at,kind:'indexed_lead',match_score:40,match_reasons:[]});
+   trace.push({tool:'d1_index',result:{total: indexed.total,loaded:indexed.items.length,configured:true}});
+  }catch(e){trace.push({tool:'d1_index',result:{error:'query_failed',message:String(e?.message||'').slice(0,90)}})}
+ }else trace.push({tool:'d1_index',result:{configured:false,message:'PRODUCTS_DB binding missing'}});
  // Official first-party listing feeds recover priced products even when Brave indexing fails.
  const pzds=await pzdsCategoryLeads(game,filters);
  for(const item of pzds.items)results.set(item.url,item);
@@ -649,7 +659,7 @@ async function discover(query,filters,env,options={}){
  const qualified=[...results.values()].filter(x=>x.price!=null&&x.price<=(Number(filters.max_price)||1000)&&
   (!server||x.server===server||(server==='苹果区'&&x.server?.startsWith('苹果'))||(server==='安卓区'&&x.server?.startsWith('安卓')))&&
   (filters.realname!=='yes'||x.realname===true));
- const skipBrave=options.disableBrave===true||qualified.length>=3;
+ const skipBrave=options.disableBrave===true||qualified.length>=3||(!!env?.PRODUCTS_DB&&['三角洲','三角洲行动'].includes(game.name)&&env.ENABLE_BRAVE_FALLBACK!=='true');
  const plans=[];
  if(!skipBrave&&env.BRAVE_SEARCH_API_KEY)plans.push({q:[game.name,server&&server!=='all'?server:null,'账号','(site:pzds.com OR site:gmmsj.com OR site:5173.com)'].filter(Boolean).join(' '),offset:0});
  trace.push({tool:'brave_cost_guard',result:{max_requests:1,max_results:10,official_qualified:qualified.length,skipped:skipBrave,reason:options.disableBrave?'disabled_for_acceptance':qualified.length>=3?'official_source_sufficient':null}});
@@ -969,6 +979,26 @@ if(url.pathname==='/api/verify-lead'&&request.method==='POST'){
   status:verified.status,reason:verified.message||'详情信息不足',
   attributes:attrs,title:attrs.title||verified.page_title||null,checked_at:verified.checked_at||null,
   source:'public_marketplace_detail',steps,duration_ms:Date.now()-start});
+}
+if(url.pathname==='/api/index/collect'&&request.method==='POST'){
+ if(!env.INGEST_SECRET||request.headers.get('Authorization')!=='Bearer '+env.INGEST_SECRET)return json({error:'Unauthorized'},401);
+ let body;try{body=await request.json()}catch{return json({error:'Invalid JSON'},400)}
+ try{return json(await collectPublicListings(env,{maxPages:body.max_pages||2,startPage:body.start_page||1,dryRun:body.dry_run===true}))}
+ catch(e){return json({error:String(e?.message||'collector_failed').slice(0,140)},400)}
+}
+if(url.pathname==='/api/index/stats'&&request.method==='GET'){
+ if(!env.PRODUCTS_DB)return json({configured:false,message:'D1 PRODUCTS_DB 未绑定'},503);
+ const game=url.searchParams.get('game')||'三角洲行动';
+ const max_price=Number(url.searchParams.get('max_price')||500);
+ try{const data=await queryProducts(env.PRODUCTS_DB,{game,max_price,limit:20});return json({configured:true,total:data.total,sample:data.items})}
+ catch(e){return json({error:'D1 query failed',detail:String(e.message).slice(0,100)},500)}
+}
+if(url.pathname==='/api/index/import'&&request.method==='POST'){
+ if(!env.INGEST_SECRET||request.headers.get('Authorization')!=='Bearer '+env.INGEST_SECRET)return json({error:'Unauthorized'},401);
+ if(!env.PRODUCTS_DB)return json({error:'PRODUCTS_DB binding missing'},503);
+ let body;try{body=await request.json()}catch{return json({error:'Invalid JSON'},400)}
+ try{return json(await upsertProducts(env.PRODUCTS_DB,body.items))}
+ catch(e){return json({error:String(e.message).slice(0,120)},400)}
 }
 if(url.pathname==='/api/search'&&request.method==='POST'){
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
