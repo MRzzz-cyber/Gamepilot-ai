@@ -27,3 +27,9 @@ With `INGEST_SECRET` set, call `POST /api/index/collect` with `Authorization: Be
 The initial collector **only accepts Product JSON-LD nodes** with the same-node URL, name and price, and a title identifying a Delta Force account. Many marketplace category pages do not expose this markup, so `parsed:0` is expected until a verified platform-specific HTML/JSON adapter is added. No attempt is made to bypass anti-bot or authentication.
 
 This is a low-cost indexing foundation, **not** evidence that 1,000 or 20,000 live accounts have been indexed. Schedule only after source validation, and only if permitted by the site.
+
+## Verified limitations as of 2026-11-23
+- PZDS public category: \`https://www.pzds.com/goodsList/391/6\` responds with 10 priced SSR cards. Normal browser navigation can load a different set, but server-side HTML keeps a page marker of 1 even when requesting \`?page=2\`. **Do not call these URLs confirmed pagination**. Exported data is a de-duplicated collection of public snapshots, not a complete inventory crawl.
+- DD373's public account category is visible in normal browsing, but GitHub Actions direct HTTP receives a WAF challenge. Do not bypass it.
+- Production D1 binding and ingestion secret have not been provisioned; no claim of production indexed inventory.
+- A successful GitHub export is separate from a successful Cloudflare deployment. Do not merge the experimental index PR over newer changes on main without reconciliation.
