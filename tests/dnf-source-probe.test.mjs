@@ -1,41 +1,58 @@
 import {test} from 'node:test';
-const start='https://www.pzds.com/goodsList/13/6';
-const clean=s=>s.replace(/\s+/g,' ').trim();
-const around=(s,key,left=100,right=350)=>{const p=s.indexOf(key);return p<0?'':clean(s.slice(Math.max(0,p-left),p+right))};
-const urls=[start,start+'?currentPage=2',start+'?page=2','https://www.sanlewang.com/dnf','https://shua688.com/dnf/index/index.html','https://www.dd373.com/s-rbg22w-br53m0-0-0-0-0-7rrfjk%7C2pps7x-0-2-0-0-0-1-0-0-0.html'];
-test('inspect official DNF desktop marketplace listings and public pagination',async()=>{
- for(let i=0;i<urls.length;i+=3)await Promise.all(urls.slice(i,i+3).map(async u=>{
-  try{
-   const r=await fetch(u,{headers:{Accept:'text/html'},signal:AbortSignal.timeout(11000)});
-   const h=await r.text();
-   const anchors=[...h.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1].trim());
-   const product=[...new Set(anchors.filter(x=>/goodsDetails|\/account\/|\/goods\/|detail|\/item|\/dnf\/[^/]+\/\w/i.test(x)))].slice(0,42);
-   const prices=[...h.matchAll(/[¥￥]\s*(?:<[^>]+>\s*){0,2}(\d[\d,]*(?:\.\d{1,2})?)/g)].map(m=>Number(m[1].replaceAll(',','')));
-   console.log('DNF_SOURCE',JSON.stringify({u,status:r.status,final:r.url,title:h.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1],len:h.length,priceCount:prices.length,under:prices.filter(x=>x>0&&x<=1000).length,price:prices.slice(0,25),product,firstProduct:product[0]?around(h,product[0],120,850):null,paging:around(h,'下一页',220,650),priceFilter:around(h,'500-999',320,550),firstPrice:around(h,'¥',200,380),root:h.slice(0,160),scripts:[...h.matchAll(/<script\b[^>]*src=["']([^"']+)/gi)].map(x=>x[1]).slice(-14)}));
-   if(u.includes('shua688.com')){
-    console.log('SHUA_MARKUP',JSON.stringify({details:anchors.filter(x=>/\/dnf\//.test(x)).slice(0,15),pages:anchors.filter(x=>/page|index_\d|index\/.*index/i.test(x)).slice(-20),price:[...h.matchAll(/[￥¥]\s*\d/g)].slice(0,3).map(m=>clean(h.slice(m.index-620,m.index+350)))}));
+const targets=['https://www.sanlewang.com/dnf','https://shua688.com/dnf/goods/index.html'];
+function around(s,idx,l=120,r=320){return s.slice(Math.max(0,idx-l),idx+r).replace(/\s+/g,' ');}
+test('inspect marketplace list request handlers and HTML price filters',async()=>{
+ for(const u of targets){
+  const h=await (await fetch(u,{signal:AbortSignal.timeout(10000)})).text();
+  const hits=Array.from(h.matchAll(/\bbstbconfig\b|queryParams|search-url|searchUrl|goodsList|data-main|controllername|ajax\b|price_(?:min|max)|(?:name=["']max_price)|\breturnUrl\b/gi));
+  for(const m of hits.slice(0,28))console.log('DNF_CONTRACT',new URL(u).hostname,m[0],around(h,m.index));
+  for(const m of [...h.matchAll(/\b(?:url|href|data-main)\s*[:=]\s*["']([^"']+)["']/gi)].filter(m=>/goods|search|list|ajax|require-frontend|dnf.*get/i.test(m[1])).slice(-30))console.log('DNF_URL',new URL(u).hostname,m[1]);
+  if(u.includes('shua688')){
+   for(const params of ['?max_price=1000','?max_price=1000&sort=price_desc&page=2']){
+    const r=await fetch(u+params,{signal:AbortSignal.timeout(8000),headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
+    const s=await r.text();let data=null;try{data=JSON.parse(s)}catch{}
+    console.log('SHUA_WEB_LIST',JSON.stringify({params,status:r.status,ctype:r.headers.get('content-type'),size:s.length,goods:[...new Set([...s.matchAll(/\/dnf\/goods\/detail\/id\/(\d+)\.html/g)].map(x=>x[1]))].slice(0,5),head:data?Object.keys(data):null,total:data?.total??data?.data?.total,best:data?.rows?.[0]?Object.keys(data.rows[0]):null}));
    }
-   if(u.includes('sanlewang')){
-    console.log('SANLE_MARKUP',JSON.stringify({links:anchors.filter(x=>!x.startsWith('javascript')&&/\/dnf\//.test(x)).slice(0,22),data:around(h,'500-999',1100,1400),price:[...h.matchAll(/(?:[￥¥]|543\.2)\s*\d*/g)].slice(0,2).map(m=>clean(h.slice(m.index-380,m.index+220))),api:[...h.matchAll(/.{0,30}(?:getGoodsList|productList|searchList|\/api\/|pageIndex).{0,45}/gi)].slice(0,25).map(x=>x[0])}));
-   }
-  }catch(e){console.log('DNF_SOURCE',JSON.stringify({u,error:String(e.cause||e)}));}
- }));
-});
-
-test('inspect the public DNF listing request contract',async()=>{
- const urls=['https://shua688.com/dnf/goods/index.html','https://shua688.com/dnf/goods/index/sort/price_asc.html','https://www.sanlewang.com/dnf'];
- for(const url of urls){
-  try{
-   const response=await fetch(url,{signal:AbortSignal.timeout(11000)});
-   const s=await response.text();
-   const endpoints=[...s.matchAll(/.{0,75}(?:fetch\(|axios|\.ajax|\/api\/|max_price|price_max|next_page|pageSize|\$http|getGoodsList).{0,95}/gi)].slice(0,44).map(m=>m[0]);
-   const scriptUrls=[...new Set([...s.matchAll(/<script\b[^>]*src=["']([^"']+)/gi)].map(x=>new URL(x[1],url).href))].filter(x=>new URL(x).hostname===new URL(url).hostname);
-   console.log('DNF_SEARCH_HTML',JSON.stringify({url,status:response.status,bytes:s.length,endpoints,form:[...s.matchAll(/<form[^>]*>|<input[^>]*name=["'](?:price\w*|\w*price|page|sort)["'][^>]*>/gi)].map(m=>m[0]).slice(0,16),scripts:scriptUrls}));
-   for(const src of scriptUrls.filter(x=>/dnf|goods|index|search/i.test(new URL(x).pathname)).slice(0,4)){
-    const js=await (await fetch(src,{signal:AbortSignal.timeout(8000)})).text();
-    const hits=[...js.matchAll(/.{0,65}(?:fetch\(|axios|\.ajax|\/api\/|max_price|price_max|next_page|pageSize|getGoodsList).{0,95}/gi)].slice(0,30).map(m=>m[0]);
-    console.log('DNF_SEARCH_SCRIPT',JSON.stringify({src,hits}));
-   }
-  }catch(e){console.log('DNF_SEARCH_HTML',JSON.stringify({url,error:String(e.cause||e)}));}
+  }
  }
+});
+import {spawn} from 'node:child_process';
+import {mkdtempSync,readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {setTimeout as pause} from 'node:timers/promises';
+test('observe the public DNF price filter and returned rows in Chrome',async()=>{
+ const tmp=mkdtempSync(join(tmpdir(),'dnf-source-chrome-'));
+ const p=spawn('google-chrome',['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0','--user-data-dir='+tmp,'about:blank'],{stdio:'ignore'});
+ let ws;
+ try{
+  let target;
+  for(let tries=0;!target&&tries<60;tries++){
+   try{const port=readFileSync(join(tmp,'DevToolsActivePort'),'utf8').split('\n')[0];target=(await (await fetch('http://127.0.0.1:'+port+'/json/list')).json()).find(t=>t.type==='page');}catch{await pause(200);}
+  }
+  if(!target)return;
+  ws=new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
+  let id=0;const pending=new Map(),events=[];
+  ws.onmessage=ev=>{const x=JSON.parse(ev.data);if(x.id){pending.get(x.id)?.(x.result);pending.delete(x.id);}else if(x.method?.startsWith('Network.'))events.push(x);};
+  const send=(method,params={})=>new Promise(resolve=>{pending.set(++id,resolve);ws.send(JSON.stringify({id,method,params}));});
+  await send('Page.enable');await send('Network.enable');
+  for(const url of targets){
+   events.length=0;
+   await send('Page.navigate',{url});await pause(4500);
+   await send('Runtime.evaluate',{expression:url.includes('sanlewang')?
+    "document.querySelector('#prices a[data-value=\"500-999\"]')?.click()":
+    "(()=>{const x=document.querySelector('#f-max-price');if(x)x.value='1000';document.querySelector('#filter-form button[type=\"submit\"]')?.click()})()"});
+   await pause(2600);
+   for(const e of events.filter(x=>x.method==='Network.requestWillBeSent'&&['XHR','Fetch'].includes(x.params.type)).slice(0,18)){
+    const {request,requestId}=e.params;
+    if(new URL(request.url).hostname!==new URL(url).hostname)continue;
+    const response=events.find(x=>x.method==='Network.responseReceived'&&x.params.requestId===requestId);
+    if(!response)continue;
+    const raw=await send('Network.getResponseBody',{requestId});
+    let shape;try{const j=JSON.parse(raw?.body);const d=j.data||j.result||j;const rows=Array.isArray(d)?d:d.rows||d.list||d.records||[];shape={keys:Object.keys(j).slice(0,12),members:Object.keys(d).slice(0,12),total:d.total??d.count??j.total,rows:rows.length,first:rows[0]&&Object.fromEntries(Object.entries(rows[0]).filter(([k])=>/^(?:id|goodsid|name|title|showprice|price|servername|crossname|role|gamename|gameid|goodsno|status|stock|goodscode)$/i.test(k))),fields:Object.keys(rows[0]||{}).slice(0,38)};}catch{}
+    console.log('DNF_PUBLIC_REQUEST',JSON.stringify({url:request.url,method:request.method,payload:request.postData?.slice(0,1800),status:response?.params.response.status,shape}));
+   }
+  }
+ }finally{ws?.close();p.kill();}
 });
