@@ -480,3 +480,69 @@ test('Brave caps to one request and 10 results; cache avoids a second paid call'
  assert.equal(second.search_diagnostics.brave.requests,0);
  assert.equal(second.search_diagnostics.brave.cache_hits,1);
 });
+
+
+function taoCard(id,price,title='三角洲账号'){
+ const link='/taoid_'+id+'.html';
+ return '<div class="item"><a class="acc-img auto-img-wrap" href="'+link+'"><img src="/img"></a>'+
+  '<div class="des"><div class="line-2 title"><a href="'+link+'">'+title+'</a></div>'+
+  '<div class="line-1 sub">安卓QQ | 全部区服</div>'+
+  '<div class="price-sts"><div class="price">￥<span>'+price+'</span></div></div></div></div>';
+}
+
+function taoFixture(page,last,cards,bucket){
+ const query='?quotaid=0&isinsurance=0&isCertificationShop=2&isActivity=0&tags=&isPreviewRank=0&bornType=-1&popularize=0&antiAddictionStatus=0';
+ const next=page<last?'<a href="/game/sanjiaozhouxingdong-36881-0-0/0-0-0-0-'+bucket+'-13-0-0-0-'+(page+1)+query+'">下一页</a>':'';
+ return '<title>三角洲行动交易平台</title><div data-current-page="'+page+'"></div>'+
+  '<div id="account-list">'+cards+'</div><li><a>'+page+'/'+last+'</a></li>'+next;
+}
+
+test('Delta budget searches use native catalogue pagination and price evidence across chat and direct search',async()=>{
+ const calls=[];
+ const mock=async input=>{
+  const url=new URL(String(input));
+  calls.push(url.href);
+  if(url.hostname==='www.pzds.com')return new Response('unavailable',{status:503});
+  assert.equal(url.hostname,'www.taoshouyou.com');
+  const parts=url.pathname.split('/').at(-1).split('-').map(Number),bucket=parts[4],page=parts.at(-1);
+  const html=page===2?taoFixture(2,2,taoCard(80000005,'466'),bucket):
+   taoFixture(1,bucket===3?2:1,bucket===3?taoCard(80000003,'500')+taoCard(80000004,'500.01'):
+    bucket===1?taoCard(80000001,'45'):taoCard(80000002,'85')+taoCard(80000006,'96','首充账号 上号充值'),bucket);
+  return new Response(html);
+ };
+ const {worker}=factory(mock,URL,Response,AbortSignal);
+ const query='三角洲500元以内的账号';
+ const {status,data:first}=await post(worker,'/api/search',{query,filters:{}});
+ assert.equal(status,200);
+ assert.deepEqual(first.items.map(x=>x.price),[45,85,500]);
+ assert.ok(first.items.every(x=>x.price_evidence==='tao_category_visible_price'&&x.status==='unverified'));
+ assert.equal(first.listing_page.source_pages,4);
+ assert.deepEqual(first.listing_page.next_cursor,[{bucket:3,page:2}]);
+ const {data:page2}=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
+ assert.deepEqual(page2.items.map(x=>x.price),[466]);
+ assert.equal(page2.listing_page.next_page,null);
+ const {data:chat}=await post(worker,'/api/chat',{message:'三角洲行动500元以内的账号'});
+ assert.deepEqual(chat.items.map(x=>x.price),[45,85,500]);
+ assert.ok(chat.items.every(x=>x.game==='三角洲行动'));
+ assert.ok(!calls.some(x=>x.includes('brave.com')||x.includes('/taoid_')));
+ const invalid=await post(worker,'/api/search',{query,page:2,cursor:[{bucket:6,page:2}]});
+ assert.equal(invalid.status,400);
+});
+
+test('catalogue requests retain failed price buckets for retry and reject a repeated upstream page',async()=>{
+ const mock=async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==='www.pzds.com')return new Response('',{status:503});
+  const parts=url.pathname.split('/').at(-1).split('-').map(Number),bucket=parts[4],page=parts.at(-1);
+  if(bucket===2)return new Response('',{status:429});
+  return new Response(taoFixture(1,2,taoCard(81000000+bucket,'38'),bucket));
+ };
+ const {worker}=factory(mock,URL,Response,AbortSignal);
+ const query='三角洲500元以内的账号';
+ const {data:first}=await post(worker,'/api/search',{query});
+ assert.deepEqual(first.listing_page.next_cursor,[{bucket:1,page:2},{bucket:2,page:1},{bucket:3,page:2}]);
+ assert.equal(first.listing_page.source_pages,null);
+ const next=await post(worker,'/api/search',{query,page:first.listing_page.next_page,cursor:first.listing_page.next_cursor});
+ assert.equal(next.status,502);
+ assert.ok(next.data.trace.some(x=>x.result.status==='unexpected_category_or_page'));
+});
