@@ -7,6 +7,9 @@ on:
       - "worker/product-index.js"
       - ".github/workflows/crawl-delta.yml"
   workflow_dispatch:
+concurrency:
+  group: gamepilot-crawl-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   crawl:
     runs-on: ubuntu-latest
