@@ -25,7 +25,6 @@ jobs:
         run: node scripts/crawl-delta.mjs
         env:
           PAGES: 5
-          INSPECT_ASSETS: 'true'
       - name: Upload raw evidence and crawl summary
         if: always()
         uses: actions/upload-artifact@v4
