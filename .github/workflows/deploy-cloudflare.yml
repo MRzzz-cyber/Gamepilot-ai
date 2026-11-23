@@ -53,7 +53,10 @@ jobs:
           }
           const first=await post('/api/chat',{message:query});
           const cursor=first.listing_page;
-          if(!cursor?.next_page||!first.items?.length)throw Error('Delta catalogue did not return a priced first page and a continuation');
+          if(!cursor?.next_page||!first.items?.length){
+            console.log('DELTA_SOURCE_FAILURE',JSON.stringify(first.trace?.filter(x=>x.tool.startsWith('discover_taoshouyou')||x.tool==='pzds_category')));
+            throw Error('Delta catalogue did not return a priced first page and a continuation');
+          }
           const second=await post('/api/search',{query,page:cursor.next_page,cursor:cursor.next_cursor});
           const shown=new Set(first.items.map(x=>x.id));
           const additional=second.items?.filter(x=>!shown.has(x.id)).length||0;

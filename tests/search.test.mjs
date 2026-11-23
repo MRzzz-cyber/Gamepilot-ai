@@ -499,7 +499,8 @@ function taoFixture(page,last,cards,bucket){
 
 test('Delta budget searches use native catalogue pagination and price evidence across chat and direct search',async()=>{
  const calls=[];
- const mock=async input=>{
+ const mock=async (input,init)=>{
+  assert.equal(init?.redirect,'manual','Cloudflare Workers only accepts manual or follow');
   const url=new URL(String(input));
   calls.push(url.href);
   if(url.hostname==='www.pzds.com')return new Response('unavailable',{status:503});
