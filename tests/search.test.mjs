@@ -610,3 +610,23 @@ test('1000 yuan Delta search reads beyond a stalled high-price page and returns 
  assert.deepEqual(next.listing_page.next_cursor.find(x=>x.bucket===4),{bucket:4,page:6});
  assert.deepEqual(calls.filter(([bucket])=>bucket===4),[[4,1]]);
 });
+
+
+test('wide Delta search samples later pages when the closest tier starts with source errors',async()=>{
+ const calls=[];
+ const mock=async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==='www.pzds.com')return new Response('',{status:503});
+  const parts=url.pathname.split('/').at(-1).split('-').map(Number),bucket=parts[4],page=parts.at(-1);
+  calls.push([bucket,page]);
+  if(bucket===4&&page<=3)return new Response('',{status:503});
+  const cards=Array.from({length:20},(_,i)=>taoCard(84000000+bucket*10000+page*100+i,bucket===4&&(page>=6||i<8)?'920':'550'));
+  return new Response(taoFixture(page,12,cards.join(''),bucket));
+ };
+ const {worker}=factory(mock,URL,Response,AbortSignal);
+ const {data}=await post(worker,'/api/search',{query:'三角洲1000元以内的账号'});
+ assert.ok(calls.some(([bucket,page])=>bucket===4&&page===9));
+ assert.ok(data.items.length>=150);
+ assert.equal(data.items.filter(item=>item.price>=700).length,96);
+ assert.deepEqual(data.listing_page.next_cursor.find(x=>x.bucket===4),{bucket:4,page:1,read_pages:[4,5,6,7,8,9]});
+});
