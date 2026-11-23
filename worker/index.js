@@ -707,7 +707,7 @@ async function taoDeltaListings(game,req,round,cursor){
  const deadline=Date.now()+(initial?DELTA_INITIAL_TIMEOUT_MS:8500);
  const firstPages=initial?buckets.map(bucket=>({bucket,page:1})):cursor;
  const pending=new Map(firstPages.map(stream=>[stream.bucket,stream.page]));
- const paused=new Set(),retrying=new Set();
+ const paused=new Set(),failedAttempts=new Map();
  const items=new Map(),pageCounts={},trace=[];
  let rounds=0,successfulPages=0,pricedMatches=0;
  while(rounds<maxRounds&&pricedMatches<DELTA_INITIAL_PRICED_TARGET){
@@ -722,12 +722,13 @@ async function taoDeltaListings(game,req,round,cursor){
    if(!result.items){
     const info=result.trace.result;
     const transient=info.status==='fetch_failed'||[500,502,503,504].includes(info.http_status);
-    if(transient&&!retrying.has(bucket))retrying.add(bucket);
-    else paused.add(bucket);
+    const attempts=(failedAttempts.get(bucket)||0)+1;
+    failedAttempts.set(bucket,attempts);
+    if(!transient||attempts>=3)paused.add(bucket);
     continue;
    }
    successfulPages++;
-   retrying.delete(bucket);
+   failedAttempts.delete(bucket);
    if(result.nextPage)pending.set(bucket,result.nextPage);
    else pending.delete(bucket);
    if(result.pageCount!=null)pageCounts[bucket]=result.pageCount;
