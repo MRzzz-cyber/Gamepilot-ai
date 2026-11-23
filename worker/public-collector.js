@@ -51,26 +51,24 @@ export function parsePzdsDeltaListing(html){
  }
  return [...items.values()];
 }
-function defaultDeltaSources(start,cap){
+function defaultDeltaSources(start,cap,includeDD373=false){
  const low='https://www.dd373.com/s-gp1gaj-f4wdcm-sxbrka-0-0-0-04q04w-0-0-0-0-0-1-0-0-0.html?MaxPrice=200.00&MinPrice=0.00';
  const mid='https://www.dd373.com/s-gp1gaj-f4wdcm-sxbrka-0-0-0-04q04w-0-0-0-0-0-1-0-0-0.html?MaxPrice=500.00&MinPrice=200.00';
  const pages=(base)=>Array.from({length:cap},(_,i)=>base.replace(/-(\d+)-0-0-0\.html/, '-'+(start+i)+'-0-0-0.html'));
- return [
-  {name:'pzds_delta_391',pages:Array.from({length:cap},(_,i)=>'https://www.pzds.com/goodsList/391/6?currentPage='+(start+i))},
-  {name:'dd373_delta_0_200',pages:pages(low)},
-  {name:'dd373_delta_200_500',pages:pages(mid)}
- ];
+ const sources=[{name:'pzds_delta_391',pages:Array.from({length:cap},(_,i)=>'https://www.pzds.com/goodsList/391/6?currentPage='+(start+i))}];
+ if(includeDD373)sources.push({name:'dd373_delta_0_200',pages:pages(low)},{name:'dd373_delta_200_500',pages:pages(mid)});
+ return sources;
 }
 
 export async function collectPublicListings(env,{maxPages=2,startPage=1,dryRun=false}={}){
  if(!env.PRODUCTS_DB)throw Error('PRODUCTS_DB binding missing');
  const cap=Math.min(Math.max(Number(maxPages)||2,1),5),start=Math.min(Math.max(Number(startPage)||1,1),1000);
- let configs;try{configs=env.LISTING_SOURCES_JSON?JSON.parse(env.LISTING_SOURCES_JSON):defaultDeltaSources(start,cap)}catch{throw Error('Invalid LISTING_SOURCES_JSON')}
+ let configs;try{configs=env.LISTING_SOURCES_JSON?JSON.parse(env.LISTING_SOURCES_JSON):defaultDeltaSources(start,cap,env.ENABLE_DD373_DIRECT==='true')}catch{throw Error('Invalid LISTING_SOURCES_JSON')}
  if(!Array.isArray(configs)||configs.length===0)return {status:'no_sources_configured',brave_requests:0,pages:0,accepted:0,source_results:[]};
  const results=[];let pages=0,accepted=0;
  for(const source of configs.slice(0,3)){
   if(!Array.isArray(source.pages))continue;
-  const out={source:source.name||'public_listing',pages:0,parsed:0,errors:[]};
+  const out={source:source.name||'public_listing',pages:0,parsed:0,errors:[]};let lastFingerprint='';
   for(const page of source.pages.slice(0,cap)){
    let u;try{u=new URL(page)}catch{out.errors.push('invalid_url');continue}
    if(u.protocol!=='https:'||!HOSTS.has(u.hostname)||u.username||u.password||u.port){out.errors.push('unsupported_host');continue}
@@ -81,6 +79,9 @@ export async function collectPublicListings(env,{maxPages=2,startPage=1,dryRun=f
     const html=(await response.text()).slice(0,1500000);
     if(/captcha|人机验证|访问验证|Access Denied|Just a moment|_waf_is_mobile|<!doctypehtml>/i.test(html.slice(0,30000))){out.errors.push('access_challenge_stop');break}
     const rows=u.hostname.endsWith('pzds.com')?parsePzdsDeltaListing(html):u.hostname.endsWith('dd373.com')?parseDD373Listing(html,u.href):parseEmbeddedJSONListings(html,u.href,source);
+    const fingerprint=rows.map(x=>x.id).sort().join('|');
+    if(fingerprint&&fingerprint===lastFingerprint){out.errors.push('repeated_page_stop');break}
+    lastFingerprint=fingerprint;
     out.parsed+=rows.length;
     if(!dryRun&&rows.length){const result=await upsertProducts(env.PRODUCTS_DB,rows);accepted+=result.accepted}
    }catch(e){out.errors.push('fetch_failed:'+String(e?.name||'error').slice(0,30))}
