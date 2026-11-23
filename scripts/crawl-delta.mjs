@@ -16,6 +16,12 @@ for(let n=start;n<start+maxPages;n++){
   const html=(await res.text()).slice(0,1800000);
   if(/captcha|人机验证|访问验证|Access Denied|Just a moment/i.test(html.slice(0,15000))){error='access_challenge_stop';break}
   pageMarker=html.match(/&quot;page&quot;:(\d+)/)?.[1]||null;
+  if(n===start){
+   const scriptUrls=[...html.matchAll(/<script[^>]*src=["']([^"']+\.js)["']/gi)].map(m=>m[1]);
+   console.log('PZDS_SCRIPTS',JSON.stringify(scriptUrls.slice(-18)));
+   const nuxtAt=html.indexOf('window.__NUXT__');
+   console.log('PZDS_NUXT',JSON.stringify(nuxtAt>=0?html.slice(nuxtAt,nuxtAt+900):'missing'));
+  }
   rows=parsePzdsDeltaListing(html);
   const fingerprint=rows.map(x=>x.id).sort().join('|');
   if(fingerprint&&fingerprint===priorFingerprint){repeated++;error='repeated_page';}
