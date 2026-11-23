@@ -173,7 +173,8 @@ function App(){
     const d=await r.json();
     if(signal.aborted||!isLatest(id))return;
     const restricted=d.trace?.some(t=>t.result?.http_status===429||t.result?.http_status===403);
-    if(untilEnd&&r.status===502&&!restricted&&retries<2){
+    const temporary=d.trace?.some(t=>t.result?.status==='fetch_failed'||[500,502,503,504].includes(t.result?.http_status));
+    if(r.status===502&&!restricted&&temporary&&retries<2){
      retries++;
      await new Promise(resolve=>setTimeout(resolve,2500));
      continue;

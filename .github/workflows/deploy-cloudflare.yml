@@ -43,20 +43,30 @@ jobs:
           node --input-type=module <<'NODE'
           const base='https://gamepilot-ai.zqsanjingshou.workers.dev';
           const query='三角洲500元以内的账号';
+          const temporary=data=>data.trace?.some(t=>[500,502,503,504].includes(t.result?.http_status)||t.result?.status==='fetch_failed')&&
+            !data.trace?.some(t=>[403,429].includes(t.result?.http_status));
           async function post(path, body) {
-            const response=await fetch(base+path, {
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body:JSON.stringify(body), signal:AbortSignal.timeout(35000)
-            });
-            if(!response.ok)throw Error(path+' HTTP '+response.status);
-            return await response.json();
+            for(let attempt=0;attempt<3;attempt++){
+              const response=await fetch(base+path, {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify(body), signal:AbortSignal.timeout(35000)
+              });
+              const data=await response.json();
+              if(response.ok)return data;
+              if(response.status!==502||!temporary(data)||attempt===2){
+                console.log('DELTA_REQUEST_FAILURE',JSON.stringify({path,status:response.status,trace:data.trace?.map(t=>t.result)}));
+                throw Error(path+' HTTP '+response.status);
+              }
+              await new Promise(resolve=>setTimeout(resolve,2500));
+            }
           }
           let first=await post('/api/chat',{message:query});
-          if((first.items?.length||0)<100&&first.trace?.some(t=>[500,502,503,504].includes(t.result?.http_status))){
+          for(let attempt=0;attempt<2&&(first.items?.length||0)<100&&temporary(first);attempt++){
             await new Promise(resolve=>setTimeout(resolve,2500));
             first=await post('/api/chat',{message:query});
           }
           const cursor=first.listing_page;
+          console.log('DELTA_FIRST_ORDER',JSON.stringify({count:first.items?.length,prices:first.items?.slice(0,6).map(x=>x.price),sort:cursor?.sort}));
           if(!cursor?.next_page||(first.items?.length||0)<100){
             console.log('DELTA_SOURCE_FAILURE',JSON.stringify(first.trace?.filter(x=>x.tool.startsWith('discover_taoshouyou')||x.tool==='pzds_category')));
             throw Error('Delta catalogue did not return at least 100 priced listings and a continuation');
