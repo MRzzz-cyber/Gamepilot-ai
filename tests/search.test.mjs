@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {upsertProducts,queryProducts} from '../worker/product-index.js';
 import {collectPublicListings} from '../worker/public-collector.js';
 
-const source=readFileSync(new URL('../worker/index.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../worker/index.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
 const factory=new Function('fetch','URL','Response','AbortSignal','upsertProducts','queryProducts','collectPublicListings',source.replace(/^import .*;\n/gm,'').replace('export default {','const worker = {')+
  ';return {worker,resolveGame,interpretIntent,genericGameEvidence,searchPlans,extractPrice,gmmsjDetail,isProductPage}');
 
