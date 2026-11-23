@@ -1,7 +1,7 @@
 // Fail closed: historical and synthetic records are not live inventory.
 const inventory=[];
 const KNOWN_SOLD=new Set(['C8YDZP']);
-const HOSTS=new Set(['www.pzds.com','pzds.com','www.5173.com','5173.com','shop.5173.com','s.5173.com','old.5173.com','www.gmmsj.com','gmmsj.com','www.taoshouyou.com']);
+const HOSTS=new Set(['www.pzds.com','pzds.com','www.5173.com','5173.com','shop.5173.com','s.5173.com','old.5173.com','www.gmmsj.com','gmmsj.com','www.taoshouyou.com','www.sanlewang.com']);
 function decodeEntities(s){return String(s||'').replace(/&quot;|&#34;/g,'"').replace(/&amp;/g,'&').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>')}
 function structuredOffers(html){
  const blocks=[...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].slice(0,12);
@@ -192,8 +192,9 @@ async function enrichCandidates(candidates,env,trace=[]){
 }
 function coverageReport(candidates,trace){
  const hosts=['盼之账号','5173','G买卖'];
- if(candidates.some(x=>x.platform==='淘手游'))hosts.push('淘手游');
- const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,unpriced:x.filter(c=>c.price==null).length,detail_fetch_priced:x.filter(c=>c.detail_price!=null&&c.price_evidence!=='search_snippet').length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,stale:x.filter(c=>c.status==='stale').length,enabled:SEARCH_DOMAINS.find(d=>d.platform===platform)?.enabled!==false,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','5173':'5173.com','G买卖':'gmmsj.com','淘手游':'taoshouyou.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
+ if(candidates.some(x=>x.platform==='淘手游')||trace.some(t=>t.tool==='discover_taoshouyou.com'))hosts.push('淘手游');
+ if(candidates.some(x=>x.platform==='三乐网')||trace.some(t=>t.tool==='discover_sanlewang.com'))hosts.push('三乐网');
+ const platforms=hosts.map(platform=>{const x=candidates.filter(c=>c.platform===platform);return {platform,discovered:x.length,with_price:x.filter(c=>c.price!=null).length,unpriced:x.filter(c=>c.price==null).length,detail_fetch_priced:x.filter(c=>c.detail_price!=null&&c.price_evidence!=='search_snippet').length,detail_checked:x.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:x.filter(c=>c.detail_price!=null).length,listed:x.filter(c=>c.status==='listed').length,sold:x.filter(c=>c.status==='sold').length,stale:x.filter(c=>c.status==='stale').length,enabled:SEARCH_DOMAINS.find(d=>d.platform===platform)?.enabled!==false,search_errors:trace.filter(t=>t.tool==='discover_'+({ '盼之账号':'pzds.com','5173':'5173.com','G买卖':'gmmsj.com','淘手游':'taoshouyou.com','三乐网':'sanlewang.com'}[platform])&&t.result?.http_status).map(t=>t.result.http_status)}});
  return {platforms,totals:{discovered:candidates.length,with_price:candidates.filter(c=>c.price!=null).length,detail_checked:candidates.filter(c=>c.detail_check&&c.detail_check!=='not_checked').length,detail_priced:candidates.filter(c=>c.detail_price!=null).length,listed:candidates.filter(c=>c.status==='listed').length,sold:candidates.filter(c=>c.status==='sold').length,stale:candidates.filter(c=>c.status==='stale').length}};
 }
 
@@ -202,7 +203,8 @@ const GAME_CATALOG=[
  {name:'冒险岛',aliases:['冒险岛M','冒险岛','MapleStory','枫之谷'],terms:['账号','角色','装备','金币','战力','职业'],server:false},
  {name:'原神',aliases:['原神','Genshin'],terms:['账号','角色','五星','命座','武器'],server:false},
  {name:'和平精英',aliases:['和平精英','吃鸡'],terms:['账号','皮肤','载具','军需'],server:false},
- {name:'地下城与勇士',aliases:['地下城与勇士','DNF','地下城'],terms:['账号','角色','装备','增幅'],server:false},
+ {name:'DNF手游',aliases:['地下城与勇士：起源','地下城与勇士:起源','地下城与勇士手游','地下城勇士手游','DNF手游版','DNF手游','DNF 手游'],terms:['账号','角色','装备','名望'],server:false},
+ {name:'地下城与勇士',aliases:['地下城与勇士端游','地下城勇士端游','地下城与勇士','地下城勇士','DNF端游','DNF 端游','DNF','地下城'],terms:['账号','角色','装备','增幅','名望'],server:false},
  {name:'英雄联盟',aliases:['英雄联盟','LOL'],terms:['账号','皮肤','段位','英雄'],server:false},
  {name:'永劫无间',aliases:['永劫无间'],terms:['账号','皮肤','武器'],server:false},
  {name:'逆水寒',aliases:['逆水寒'],terms:['账号','角色','装备'],server:false}
@@ -249,8 +251,11 @@ const GAME_EXCLUSION_MARKERS=[
  {game:'永劫无间',re:/(?:永劫无间)/i},
  {game:'逆水寒',re:/(?:逆水寒)/i}
 ];
+const DNF_MOBILE_TITLE=/(?:DNF\s*手游|地下城(?:与)?勇士\s*(?:[:：]\s*起源|手游))/i;
 function listingGameMatches(title,description,game){
  const t=String(title||'').replace(/(?:[-|_－])\s*(?:盼之代售|盼之账号|G买卖|5173|游戏账号交易平台).*$/i,'').trim();
+ if(game.name==='DNF手游')return DNF_MOBILE_TITLE.test(t);
+ if(game.name==='地下城与勇士'&&DNF_MOBILE_TITLE.test(t))return false;
  const other=GAME_EXCLUSION_MARKERS.filter(x=>x.game!==game.name&&x.re.test(t));
  if(other.length)return false;
  if(gameMatches(t,game))return true;
@@ -270,6 +275,10 @@ function genericGameEvidence(title,description,game){
  return !!label&&label[1].toLocaleLowerCase().includes(name.toLocaleLowerCase());
 }
 function labeledListingGame(title,description,game){
+ const label=String(description||'').match(/(?:游戏区服|所属游戏|游戏名称|游戏分类)\s*[:：]?\s*([^\s,，|｜;；<>]{2,55})/i)?.[1]||'';
+ const mobile=DNF_MOBILE_TITLE.test(title)||DNF_MOBILE_TITLE.test(label);
+ if(game.name==='DNF手游')return mobile;
+ if(game.name==='地下城与勇士'&&mobile)return false;
  if(genericGameEvidence(title,description,game))return true;
  if(listingGameMatches(title,'',game))return true;
  const d=String(description||'').slice(0,1500);
@@ -324,7 +333,7 @@ function evaluateCandidate(x,req){
   if(h.field==='server'&&!x.server)unknown.push('区服未核实');
   if(h.field==='realname'&&x.realname===false)failures.push('不支持二次实名');
   if(h.field==='realname'&&x.realname==null)unknown.push('实名状态未核实');
-  if(h.field==='profession'){const known=full.match(/(?:职业|职阶)\s*[:：为是]?\s*(黑骑士|剑刃舞者|弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1]||full.match(/(?:黑骑士|剑刃舞者|夜使者|双弩精灵|主教)/)?.[0];if(known&&known!==h.value)failures.push('职业不匹配');else if(!known)unknown.push('职业未核实')}
+  if(h.field==='profession'){const known=x.detail_attributes?.profession||x.listed_profession||full.match(/(?:职业|职阶)\s*[:：为是]?\s*(黑骑士|剑刃舞者|弓箭手|法师|战士|飞侠|海盗|夜使者|双弩精灵|主教)/)?.[1]||full.match(/(?:黑骑士|剑刃舞者|夜使者|双弩精灵|主教)/)?.[0];if(known&&known!==h.value)failures.push('职业不匹配');else if(!known)unknown.push('职业未核实')}
  }
  for(const term of req.soft){const hit=term==='战力高'?/战力\s*[:：]?\s*\d{4,}/.test(full):term==='装备好'?/装备|神装|毕业/.test(full):term==='皮肤多'?x.skins!=null&&x.skins>=150:term==='等级高'?/等级\s*[:：]?\s*(?:2\d\d|3\d\d)/.test(full):false;if(hit)positive.push(term);else unknown.push(term+'缺少证据')}
  const fit=failures.length?'rejected':unknown.length?'partial':'matched';
@@ -365,6 +374,7 @@ function searchPlans(game,filters){
 const SEARCH_DOMAINS=[{host:'pzds.com',platform:'盼之账号'},{host:'5173.com',platform:'5173'},{host:'gmmsj.com',platform:'G买卖'}];
 function isProductPage(u,domain){
  const p=u.pathname,h=u.hostname;
+ if(domain==='sanlewang.com')return h==='www.sanlewang.com'&&/^\/dnf\/details\/[a-z0-9]{4,24}\/?$/i.test(p);
  if(domain==='taoshouyou.com')return h==='www.taoshouyou.com'&&/^\/taoid_\d{6,16}\.html$/i.test(p);
  if(domain==='pzds.com')return /^\/goodsDetails\/[a-z0-9]+(?:\/\d+)?\/?$/i.test(p);
  if(domain==='gmmsj.com'){
@@ -555,6 +565,14 @@ async function browserDiscoverCategory(category,game,env){
 }
 const isDeltaGame=name=>name==='三角洲'||name==='三角洲行动';
 const sameListingGame=(a,b)=>!!a&&(a===b||isDeltaGame(a)&&isDeltaGame(b));
+const PZDS_ACCOUNT_CATEGORIES=new Map([
+ ['三角洲行动',{id:391,title:/三角洲行动/}],
+ ['地下城与勇士',{id:13,title:/地下城与勇士/}],
+ ['和平精英',{id:8,title:/和平精英/}]
+]);
+function pzdsAccountCategory(game){
+ return PZDS_ACCOUNT_CATEGORIES.get(isDeltaGame(game?.name)?'三角洲行动':game?.name);
+}
 
 function deltaListingAttributes(title){
  const text=String(title||'').replace(/\s+/g,' ');
@@ -580,7 +598,8 @@ function deltaListingAttributes(title){
 function pzdsCategoryCards(html,game){
  const source=String(html||''),leads=new Map();
  const delta=isDeltaGame(game?.name);
- if(!delta&&game?.name!=='王者荣耀')return [];
+ const category=pzdsAccountCategory(game);
+ if(!category&&game?.name!=='王者荣耀')return [];
  const name=delta?'三角洲行动':game.name;
  for(const a of source.matchAll(/<a\b[^>]*\bhref=["'](\/goodsDetails\/([a-z0-9_-]{4,24})\/6(?:\?[^"']*)?)["'][^>]*>/gi)){
   const id=a[2].toUpperCase();
@@ -593,18 +612,19 @@ function pzdsCategoryCards(html,game){
   const amount=[...plain.matchAll(/[¥￥]\s*([1-9][\d,]{0,8}(?:\.\d{1,2})?)/g)]
    .map(m=>Number(m[1].replace(/,/g,''))).filter(n=>n>=10&&n<=1000000);
   const unique=[...new Set(amount)];
-  if(delta&&/(?:已售出|已下架|已售罄)/.test(plain))continue;
-  // On Delta cards this field holds the current listing price, separate from discounts.
+  if(category&&/(?:已售出|已下架|已售罄)/.test(plain))continue;
+  // The current list quote has its own element, separate from discounts.
   const visiblePrice=raw.match(/<div\b[^>]*\bclass=["']newGoodsList_box_pir["'][^>]*>\s*[¥￥]\s*([\d,]+(?:\.\d{1,2})?)\s*<\/div>/i)?.[1];
-  const deltaPrice=Number(visiblePrice?.replace(/,/g,''));
-  const price=delta?(deltaPrice>0&&deltaPrice<=1000000?deltaPrice:null):unique.length===1?unique[0]:null;
+  const listPrice=Number(visiblePrice?.replace(/,/g,''));
+  const price=category?(listPrice>0&&listPrice<=1000000?listPrice:null):unique.length===1?unique[0]:null;
   const titleAttr=decodeEntities(tag.match(/\btitle=["']([^"']+)["']/i)?.[1]||'').trim();
   const title=(titleAttr||plain.split(/(?:苹果QQ|苹果微信|安卓QQ|安卓微信)/)[0]||'').slice(0,165);
-  const server=plain.match(/苹果QQ|苹果微信|安卓QQ|安卓微信/)?.[0]||null;
+  const dnfServer=game.name==='地下城与勇士'?plain.match(/跨[一二三四五六七八1-8][AB]?(?:\s*[-－]\s*[^\s¥￥，。]{2,15})?/i)?.[0]:null;
+  const server=dnfServer||plain.match(/苹果QQ|苹果微信|安卓QQ|安卓微信/)?.[0]||null;
   const realname=/不可二次实名|不支持二次实名|不可二改/.test(plain)?false:/可二次实名|支持二次实名|可二改/.test(plain)?true:null;
   const skins=Number((title+' '+plain).match(/皮肤(?:数量|数)?\s*(\d{2,4})/)?.[1])||null;
   const heroes=Number((title+' '+plain).match(/英雄(?:数量|数)?\s*(\d{2,4})/)?.[1])||null;
-  leads.set(id,{id:'pzds.com:'+id,game:game.name,platform:'盼之账号',url:'https://www.pzds.com/goodsDetails/'+id+'/6',title:name+' '+(title||'账号 '+id),delta_attributes:delta?deltaListingAttributes(titleAttr||title):null,description:'盼之账号'+name+'官方商品列表 '+[server,realname===true?'可二次实名':realname===false?'不可二次实名':null].filter(Boolean).join(' '),server,price,price_evidence:price!=null?'pzds_category_visible_price':'unknown',price_source_label:price!=null?'盼之账号官方商品列表标价（非实时）':'列表未取到价格',status:'unverified',game_confirmed:true,identity_pending:false,skins,heroes,realname,verification:'公开分类页商品卡片；详情和在售状态仍需核验',discovered_at:new Date().toISOString(),kind:delta?'paged_category_lead':'category_lead',match_score:45,match_reasons:[]});
+  leads.set(id,{id:'pzds.com:'+id,game:game.name,platform:'盼之账号',url:'https://www.pzds.com/goodsDetails/'+id+'/6',title:name+' '+(title||'账号 '+id),delta_attributes:delta?deltaListingAttributes(titleAttr||title):null,description:'盼之账号'+name+'官方商品列表 '+[server,realname===true?'可二次实名':realname===false?'不可二次实名':null].filter(Boolean).join(' '),server,price,price_evidence:price!=null?'pzds_category_visible_price':'unknown',price_source_label:price!=null?'盼之账号官方商品列表标价（非实时）':'列表未取到价格',status:'unverified',game_confirmed:true,identity_pending:false,skins,heroes,realname,verification:'公开分类页商品卡片；详情和在售状态仍需核验',discovered_at:new Date().toISOString(),kind:category?'paged_category_lead':'category_lead',match_score:45,match_reasons:[]});
   if(leads.size>=50)break;
  }
  return [...leads.values()];
@@ -715,8 +735,7 @@ function taoPriceBuckets(budget){
  return TAO_BUCKET_MINIMUMS.flatMap((min,i)=>i===0||min<budget?[i+1]:[]);
 }
 
-function validTaoCursor(cursor,budget,round){
- const buckets=taoPriceBuckets(budget);
+function validCatalogueCursor(cursor,buckets,round){
  return Array.isArray(cursor)&&cursor.length>0&&cursor.length<=buckets.length&&
   new Set(cursor.map(x=>x?.bucket)).size===cursor.length&&cursor.every(x=>
    buckets.includes(x?.bucket)&&Number.isSafeInteger(x.page)&&x.page>=1&&x.page<=round&&
@@ -724,11 +743,11 @@ function validTaoCursor(cursor,budget,round){
     x.read_pages.every(page=>Number.isSafeInteger(page)&&page>x.page&&page<=x.page+DELTA_NEAR_BUDGET_WINDOW-1))));
 }
 
-async function taoDeltaListings(game,req,round,cursor){
- const buckets=taoPriceBuckets(req.budget);
+async function collectPricedCatalogue(adapter,game,req,round,cursor){
+ const buckets=adapter.buckets(req.budget);
  const closestBucket=buckets.at(-1);
  const initial=round===1;
- const wideSearch=initial&&req.budget>=750&&req.budget<=5000&&closestBucket>=4;
+ const wideSearch=initial&&adapter.readAhead&&req.budget>=750&&req.budget<=5000&&closestBucket>=4;
  const target=wideSearch?150:DELTA_INITIAL_PRICED_TARGET;
  const nearBudget=Math.ceil(req.budget*0.7);
  const maxRounds=initial?DELTA_INITIAL_MAX_ROUNDS:1;
@@ -767,7 +786,7 @@ async function taoDeltaListings(game,req,round,cursor){
   async function readClosestPages(pageNumbers){
    const remaining=deadline-Date.now();
    if(!pageNumbers.length||remaining<=0)return [];
-   const results=await Promise.all(pageNumbers.map(page=>taoDeltaPage(game,closestBucket,page,Math.min(6500,remaining))));
+   const results=await Promise.all(pageNumbers.map(page=>adapter.readPage(game,closestBucket,page,Math.min(6500,remaining),req.budget)));
    for(const [i,result] of results.entries()){
     addSourcePage(closestBucket,result);
     const page=pageNumbers[i];
@@ -790,7 +809,7 @@ async function taoDeltaListings(game,req,round,cursor){
   const remaining=deadline-Date.now();
   if(!active.length||remaining<=0)break;
   rounds++;
-  const pages=await Promise.all(active.map(([bucket,page])=>taoDeltaPage(game,bucket,page,Math.min(8500,remaining))));
+  const pages=await Promise.all(active.map(([bucket,page])=>adapter.readPage(game,bucket,page,Math.min(8500,remaining),req.budget)));
   for(const [i,result] of pages.entries()){
    const [bucket]=active[i];
    addSourcePage(bucket,result);
@@ -813,21 +832,85 @@ async function taoDeltaListings(game,req,round,cursor){
  });
  const nextPage=nextCursor.length?Math.max(round+Math.max(1,rounds),...nextCursor.map(x=>x.page)):null;
  const sourcePages=Object.keys(pageCounts).length===buckets.length?Object.values(pageCounts).reduce((sum,n)=>sum+n,0):null;
- return {trace,items:[...items.values()],catalogue:{source:'淘手游',page:round,next_page:nextPage,
+ return {trace,items:[...items.values()],catalogue:{source:adapter.platform,page:round,next_page:nextPage,
   next_cursor:nextCursor,source_pages:sourcePages,source_page_counts:pageCounts,source_bucket_count:buckets.length}};
 }
 
-async function pzdsDeltaPreview(game){
- const url='https://www.pzds.com/goodsList/391/6';
+async function pzdsAccountPreview(game){
+ const category=pzdsAccountCategory(game);
+ if(!category)return null;
+ const url='https://www.pzds.com/goodsList/'+category.id+'/6';
  try{
   const response=await fetch(url,{signal:AbortSignal.timeout(8500),redirect:'manual',headers:{Accept:'text/html'}});
   if(!response.ok)return {url,items:[],status:'http_'+response.status};
   const html=(await response.text()).slice(0,850000);
   const title=html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]||'';
-  if(!title.includes('三角洲行动'))return {url,items:[],status:'unexpected_category'};
+  const categoryTitle=title.split(/[-–—]盼之|[·•]/)[0];
+  if(!category.title.test(categoryTitle)||(game.name==='地下城与勇士'&&DNF_MOBILE_TITLE.test(categoryTitle)))return {url,items:[],status:'unexpected_category'};
   const items=pzdsCategoryCards(html,game);
   return {url,items,status:items.length?'ok':'no_product_cards'};
  }catch{return {url,items:[],status:'fetch_failed'};}
+}
+
+const SANLE_ORIGIN='https://www.sanlewang.com';
+const SANLE_DNF_LIST=SANLE_ORIGIN+'/Mian/GetAccounts_BSTable?Gm='+encodeURIComponent('地下城与勇士');
+const SANLE_PAGE_SIZE=20;
+async function sanleDnfPage(game,bucket,page,timeoutMs,budget){
+ const trace={tool:'discover_sanlewang.com',source_url:SANLE_ORIGIN+'/dnf',result:{bucket,page,detail_pages:0}};
+ const result=trace.result;
+ try{
+  const params=new URLSearchParams({offset:String((page-1)*SANLE_PAGE_SIZE),limit:String(SANLE_PAGE_SIZE),
+   job:'',secondJob:'',area:'',server:'',price:'1-'+Math.floor(budget),title:'',kq:'',secondAuth:'',mw:'',
+   fullLevelCount:'',haveLP:'',creditScore:'',weaponLevel:''});
+  const response=await fetch(SANLE_DNF_LIST,{method:'POST',body:params,headers:{Accept:'application/json'},
+   signal:AbortSignal.timeout(timeoutMs),redirect:'manual'});
+  if(!response.ok){
+   Object.assign(result,{status:'http_error',http_status:response.status});
+   return {trace};
+  }
+  const data=await response.json();
+  const total=Number(data.count);
+  if(Number(data.code)!==200||!Array.isArray(data.data)||!Number.isSafeInteger(total)||total<0){
+   Object.assign(result,{status:'unexpected_catalogue',error:'源站未返回有效账号列表'});
+   return {trace};
+  }
+  const items=[];
+  for(const row of data.data){
+   if(!row||typeof row!=='object')continue;
+   const productId=String(row.Gameid||'');
+   const title=cleanText(row.title).trim().slice(0,240);
+   const price=Number(row.showprice);
+   const sourceGame=String(row.gamename||'');
+   if(!/^[a-z0-9]{4,24}$/i.test(productId)||!title||normalizeDetailGame(sourceGame)!==game.name||
+      DNF_MOBILE_TITLE.test(title)||row.is_del===1||row.is_del==='1'||
+      !Number.isFinite(price)||price<=0||price>1000000)continue;
+   const server=[cleanText(row.crossname).trim(),cleanText(row.servername).trim()].filter(Boolean).join(' · ')||null;
+   const profession=cleanText(row.rolename||row.role).trim().slice(0,30)||null;
+   items.push({id:'sanlewang.com:'+productId.toUpperCase(),game:game.name,platform:'三乐网',
+    url:SANLE_ORIGIN+'/dnf/details/'+productId,title,description:'地下城与勇士端游 · 三乐网账号列表',
+    server,price,price_evidence:'sanle_category_visible_price',price_source_label:'三乐网列表标价',
+    status:'unverified',game_confirmed:true,kind:'paged_category_lead',listed_profession:profession,
+    realname:null,skins:null,heroes:null,verification:'源站列表标价，详情和在售状态待核验'});
+  }
+  if(data.data.length&&!items.length){
+   Object.assign(result,{status:'no_valid_cards',error:'商品游戏或标价未核实'});
+   return {trace};
+  }
+  const pageCount=Math.ceil(total/SANLE_PAGE_SIZE);
+  Object.assign(result,{status:'ok',detail_pages:items.length,priced:items.length,page_count:pageCount,source_rows:total});
+  return {trace,items,nextPage:page<pageCount?page+1:null,pageCount};
+ }catch(error){
+  Object.assign(result,{status:'fetch_failed',error:String(error?.name||'fetch_failed')});
+  return {trace};
+ }
+}
+
+const PAGED_ACCOUNT_CATALOGUES=new Map([
+ ['三角洲行动',{platform:'淘手游',readPage:taoDeltaPage,buckets:taoPriceBuckets,readAhead:true,versions:['国服']}],
+ ['地下城与勇士',{platform:'三乐网',readPage:sanleDnfPage,buckets:()=>[1],versions:['国服','PC版']}]
+]);
+function pagedAccountCatalogue(game){
+ return PAGED_ACCOUNT_CATALOGUES.get(isDeltaGame(game?.name)?'三角洲行动':game?.name);
 }
 
 async function discover(query,filters,req,env,options={}){
@@ -835,9 +918,11 @@ async function discover(query,filters,req,env,options={}){
  const trace=[],results=new Map(),categoryPages=new Map(),game=resolveGame(query,filters),server=game?.server&&filters.server!=='all'?filters.server:'';
  if(!game)return {candidates:[],trace:[{tool:'resolve_game',result:{error:'missing_game_name'}}],reason:'missing_game_name',message:'请提供具体游戏名称，例如「找鸣潮账号」'};
  const page=options.page||1;
- if(isDeltaGame(game.name)&&(!filters.requested_version||filters.requested_version==='国服')){
-  if(page>1&&!validTaoCursor(options.cursor,filters.max_price,page))return {candidates:[],trace,reason:'invalid_cursor',pageError:true};
-  const [feed,preview]=await Promise.all([taoDeltaListings(game,req,page,options.cursor),page===1?pzdsDeltaPreview(game):null]);
+ const adapter=pagedAccountCatalogue(game);
+ const useCatalogue=adapter&&(!filters.requested_version||adapter.versions.includes(filters.requested_version));
+ if(useCatalogue){
+  if(page>1&&!validCatalogueCursor(options.cursor,adapter.buckets(req.budget),page))return {candidates:[],trace,reason:'invalid_cursor',pageError:true};
+  const [feed,preview]=await Promise.all([collectPricedCatalogue(adapter,game,req,page,options.cursor),page===1?pzdsAccountPreview(game):null]);
   trace.push(...feed.trace);
   if(preview){trace.push({tool:'pzds_category',source_url:preview.url,result:{status:preview.status,detail_pages:preview.items.length,priced:preview.items.filter(x=>x.price!=null).length}});}
   if(feed.catalogue){
@@ -849,10 +934,14 @@ async function discover(query,filters,req,env,options={}){
  }
  if(page>1)return {candidates:[],trace,reason:'unsupported_page',pageError:true};
  // Official first-party listing feeds recover priced products even when Brave indexing fails.
- if(!isDeltaGame(game.name)){
-  const pzds=await pzdsCategoryLeads(game,filters);
-  for(const item of pzds.items)results.set(item.url,item);
-  trace.push({tool:'pzds_category',result:{status:pzds.diagnostic,detail_pages:pzds.items.length,priced:pzds.priced,pages:pzds.pages||0,page_errors:pzds.page_errors||[]}});
+ if(!useCatalogue){
+  const pzds=game.name==='王者荣耀'?await pzdsCategoryLeads(game,filters):
+   !filters.requested_version||filters.requested_version==='国服'?await pzdsAccountPreview(game):null;
+  if(pzds){
+   for(const item of pzds.items)results.set(item.url,item);
+   trace.push({tool:'pzds_category',source_url:pzds.url,result:{status:pzds.status||pzds.diagnostic,
+    detail_pages:pzds.items.length,priced:pzds.items.filter(x=>x.price!=null).length,pages:pzds.pages||0,page_errors:pzds.page_errors||[]}});
+  }
  }
  // Limit request fan-out to avoid exhausting search API quotas; distribute across all platforms.
  const feed=game.universal?{items:[],diagnostic:'universal_search'}:await gmmsjCategoryLeads(game,filters);
@@ -1047,7 +1136,7 @@ async function agentSearchListings(query,args,env,options={}){
  const editionSafe=enriched.filter(x=>!x.detail_game||x.detail_game===game?.name); // DEMO: version is not a hard filter.
  const editionRejected=enriched.length-editionSafe.length;
  stages.push({stage:'edition_filter',count:editionSafe.length,rejected:editionRejected,skipped:true,reason:'demo_version_filter_disabled'});
- const sortByBudget=isDeltaGame(game?.name);
+ const sortByBudget=!!discovery.listingPage||isDeltaGame(game?.name);
  const items=editionSafe
   .filter(x=>(x.game_confirmed||x.detail_game===game?.name)&&!['sold','stale','wrong_game','game_unconfirmed'].includes(x.status))
   .map(x=>({...x,requirement_evaluation:req?evaluateCandidate(x,req):null}))
@@ -1056,7 +1145,7 @@ async function agentSearchListings(query,args,env,options={}){
   .slice(0,discovery.listingPage?undefined:20)
   .map(x=>{
    const detailPrice=/^(?:detail_|gmmsj_detail_)/.test(x.price_evidence||'');
-   const sourceLabel=detailPrice?'商品详情页':['gmmsj_category_visible_price','pzds_category_visible_price','tao_category_visible_price'].includes(x.price_evidence)?'源站商品列表（非实时）':'搜索索引（非实时）';
+   const sourceLabel=detailPrice?'商品详情页':['gmmsj_category_visible_price','pzds_category_visible_price','tao_category_visible_price','sanle_category_visible_price'].includes(x.price_evidence)?'源站商品列表（非实时）':'搜索索引（非实时）';
    const full=(x.title||'')+' '+(x.description||'');
    return {id:x.id,game:game.name,title:x.title,description:x.description,platform:x.platform,url:x.url,
     price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,delta_attributes:x.delta_attributes||null,detail_summary:x.detail_summary||null,detail_listing_id:x.detail_listing_id||null,
@@ -1065,7 +1154,7 @@ async function agentSearchListings(query,args,env,options={}){
     match_score:x.requirement_evaluation?.score??x.match_score,requirement_evaluation:x.requirement_evaluation,
     price_conflict:x.price_conflict||false,
     key_attributes:{game:game.name,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,rank:x.detail_attributes?.rank||null,noble:x.detail_attributes?.noble??null,level:x.detail_attributes?.level??null,
-     profession:x.detail_attributes?.profession||full.match(/(?:职业|职阶)\s*(?:[:：为是])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||null,
+     profession:x.detail_attributes?.profession||x.listed_profession||full.match(/(?:职业|职阶)\s*(?:[:：为是])\s*([\p{Script=Han}A-Za-z0-9]{2,12})/u)?.[1]||null,
      power:x.detail_attributes?.power||full.match(/(?:战斗力|战力)\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:万|亿)?)/u)?.[1]||null},
     version_label:filters.requested_version?'用户要求'+filters.requested_version+' · 版本未核验':'版本未核验'};
   });
@@ -1119,8 +1208,11 @@ async function agentSearchListings(query,args,env,options={}){
   {id:'evidence-filtering',status:items.length?'completed':'no_match',output:{eligible:items.length,unpriced:unpricedLeads.length,excluded:excludedLeads.length}},
   {id:'preference-ranking',status:items.length?'completed':'skipped_no_matches',output:{ranked:items.length,sort:'preference_score'}}
  ];
+ const activeCatalogueSources=[
+  {host:'taoshouyou.com',platform:'淘手游'},{host:'sanlewang.com',platform:'三乐网'}
+ ].filter(source=>discovery.trace.some(x=>x.tool==='discover_'+source.host));
  const detailDiagnostics={
-  source_health:SEARCH_DOMAINS.map(d=>({platform:d.platform,domain:d.host,
+  source_health:[...SEARCH_DOMAINS,...activeCatalogueSources].map(d=>({platform:d.platform,domain:d.host,
    leads:discovery.candidates.filter(x=>x.platform===d.platform).length,
    priced:enriched.filter(x=>x.platform===d.platform&&x.price!=null).length,
    search_requests:discovery.trace.filter(x=>x.tool==='discover_'+d.host).length,
@@ -1159,19 +1251,30 @@ async function watchPrice(raw,env){
  if(env.PRICE_HISTORY&&current){try{history.push(current);await env.PRICE_HISTORY.put(key,JSON.stringify(history.slice(-30)),{expirationTtl:60*60*24*90})}catch{return {url:u.href,current,previous,change,history_saved:false,warning:'历史价格保存失败',status:checked.status}}}
  return {url:u.href,current,previous,change,history_saved:!!env.PRICE_HISTORY&&!!current,history_points:history.length,availability:checked.status,updated_at:checked.updated_at||null,warning:!validPrice?'当前详情页无可信价格，或商品已售出/过期；不生成价格变化':!env.PRICE_HISTORY?'未绑定 PRICE_HISTORY KV，当前仅支持即时价格检查':'历史价格为此前检查时的快照，并非连续实时监控'};
 }
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-delta-wide-budget-cards',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-multi-game-marketplace-discovery',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
  const cases=[
   ['帮我找一个鸣潮账号 2000元以内','鸣潮'],
   ['搜索《崩坏：星穹铁道》账号 1500元以内','崩坏：星穹铁道'],
   ['找一个冒险岛台服账号','冒险岛'],
   ['找一个王者荣耀苹果QQ账号','王者荣耀'],
-  ['1000元以内的三角洲账号','三角洲'],
+  ['1000元以内的三角洲账号','三角洲','淘手游'],
   ['帮我找800元以内的三角洲行动账号','三角洲行动'],
   ['从原神换成三角洲账号，预算1000元','三角洲'],
-  ['找500元的明日方舟账号','明日方舟']
+  ['找500元的明日方舟账号','明日方舟'],
+  ['地下城勇士 1000 元的账号','地下城与勇士','三乐网'],
+  ['DNF端游1000元以内的账号','地下城与勇士','三乐网'],
+  ['DNF手游1000元以内的账号','DNF手游',null]
  ];
- const checks=cases.map(([query,expected])=>{const game=resolveGame(query,{game:'原神'}),clarification=interpretIntent(query,{game:'原神'}),plans=game?searchPlans(game,{}):[];return {query,game:game?.name||null,queries:plans.length,clarification_ready:!!clarification,passed:game?.name===expected&&clarification.requirements?.game===expected&&plans.length>0}});
- return json({version:'universal-smoke-v2',checks,passed:checks.every(x=>x.passed),note:'离线确定性逻辑测试，不代表真实搜索服务或商品价格可用'});
+ const checks=cases.map(([query,expected,expectedMarketplace])=>{
+  const game=resolveGame(query,{game:'原神'});
+  const clarification=interpretIntent(query,{game:'原神'});
+  const plans=game?searchPlans(game,{}):[];
+  const marketplace=pagedAccountCatalogue(game)?.platform||null;
+  const routeMatches=expectedMarketplace===undefined||marketplace===expectedMarketplace;
+  return {query,game:game?.name||null,queries:plans.length,paged_marketplace:marketplace,clarification_ready:!!clarification,
+   passed:game?.name===expected&&clarification.requirements?.game===expected&&plans.length>0&&routeMatches};
+ });
+ return json({version:'universal-smoke-v3',checks,passed:checks.every(x=>x.passed),note:'离线确定性逻辑测试，不代表真实搜索服务或商品价格可用'});
 }if(url.pathname==='/api/acceptance'&&request.method==='GET'){const started=Date.now();const game=GAME_CATALOG.find(g=>g.name==='冒险岛');const feed=await gmmsjCategoryLeads(game,{version:'国服'});const sample=feed.items.slice(0,3);const checks=await Promise.all(sample.map(async x=>{const v=await verifyListing(x.url);return {url:x.url,title:x.title,price:v.price??null,status:v.status,detail_game:v.detail_game||null,updated_at:v.updated_at||null,detail_check:v.message||null}}));return json({version:'2026-11-23-feed-acceptance-v2',source:'G买卖 冒险岛国服',category_status:feed.diagnostic,category_links:feed.links_found||0,category_priced:feed.priced||0,unique_product_links:feed.items.length,detail_samples:checks,elapsed_ms:Date.now()-started,passed:(feed.priced||0)>0&&checks.some(x=>x.price!=null&&x.detail_game===game.name&&x.status!=='sold'&&x.status!=='stale'),note:'核验了列表标价和商品游戏身份；不保证实时库存或可交易。'});}if(url.pathname==='/api/assets'&&request.method==='GET')return json(inventory);if(url.pathname==='/api/price-watch'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await watchPrice(String(b.url||'').slice(0,500),env))}if(url.pathname==='/api/verify'&&request.method==='POST'){let b;try{b=await request.json()}catch{return json({error:'无效JSON'},400)}return json(await verifyListing(String(b.url||'').slice(0,500)))}if(url.pathname==='/api/analyze'&&request.method==='POST'){
  let body;try{body=await request.json()}catch{return json({error:'无效JSON'},400)}
  const query=String(body.query||'').slice(0,1000);
