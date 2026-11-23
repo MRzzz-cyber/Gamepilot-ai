@@ -34,19 +34,30 @@ export async function queryProducts(db,{game,max_price=500,limit=200,offset=0}={
  return {configured:true,total:Number(count?.n||0),items:res.results||[],limit:size,offset:skip};
 }
 export function parseDD373Listing(html,pageUrl){
- // Strictly use one listing card's link, title and price. No cross-card price association.
- const source=String(html||''),records=[],seen=new Set();
- const anchors=[...source.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/gi)];
- for(const a of anchors){
-  let u;try{u=new URL(a[1].replace(/&amp;/g,'&'),pageUrl)}catch{continue}
-  if(!/^(?:www\.)?dd373\.com$/.test(u.hostname)||!/\/goods-|\/product\/|\/detail\//i.test(u.pathname))continue;
-  const text=clean(a[0]),context=source.slice(Math.max(0,a.index-400),Math.min(source.length,a.index+a[0].length+450));
-  if(!/三角洲|游戏账号|账号/.test(context))continue;
-  if(/(?:道具|护航|代肝|陪玩|哈夫币)/.test(context.slice(0,180)))continue;
-  const prices=[...clean(context).matchAll(/[¥￥]\s*([1-9][\d,]*(?:\.\d{1,2})?)/g)].map(x=>Number(x[1].replace(/,/g,'')));
-  if(prices.length!==1||seen.has(u.href))continue;
-  const row=normalizeProduct({game:'三角洲行动',title:text,price:prices[0],url:u.href,category:'游戏账号'});
-  if(row){seen.add(u.href);records.push(row)}
+ // One product title anchor -> its own card's price -> matching detail link.
+ // Never associate a price from the next product or from unrelated promotions.
+ const source=String(html||''),out=[],seen=new Set();
+ if(!/三角洲行动/.test(source.slice(0,120000)))return out;
+ const re=/<a\b[^>]*\bhref=(["'])([^"']*\/detail-(ZH[\w-]+)\.html(?:\?[^"']*)?)\1[^>]*>([\s\S]*?)<\/a>/gi;
+ const links=[...source.matchAll(re)].map(m=>({at:m.index,end:m.index+m[0].length,href:m[2],id:m[3],text:clean(m[4])}));
+ for(let i=0;i<links.length;i++){
+  const a=links[i];
+  if(!a.text||/^(?:查看详情|立即购买|购买|查看)$/i.test(a.text)||a.text.length<4||seen.has(a.id))continue;
+  const next=links.find((b,j)=>j>i&&b.id!==a.id);
+  const ownDetail=links.find((b,j)=>j>i&&b.id===a.id&&/查看详情/.test(b.text));
+  const stop=Math.min(ownDetail?.end??Infinity,next?.at??Infinity,a.end+18000);
+  if(!Number.isFinite(stop)||stop<=a.end)continue;
+  const card=source.slice(a.end,stop);
+  const text=clean(card);
+  if(!/(?:商品类型|区服类型)[：:\s\S]{0,180}游戏账号/.test(text))continue;
+  if(/(?:商品类型|区服类型)[：:\s\S]{0,180}(?:纯币号|道具|护航|代肝专区)/.test(text))continue;
+  const amounts=[...text.matchAll(/[¥￥]\s*([1-9][\d,]*(?:\.\d{1,2})?)/g)].map(m=>Number(m[1].replace(/,/g,'')));
+  const unique=[...new Set(amounts)];
+  if(unique.length!==1||unique[0]>500||unique[0]<1)continue;
+  let u;try{u=new URL(a.href.replace(/&amp;/g,'&'),pageUrl)}catch{continue}
+  if(u.hostname!=='www.dd373.com'&&u.hostname!=='dd373.com')continue;
+  const row=normalizeProduct({game:'三角洲行动',category:'游戏账号',title:a.text,price:unique[0],url:u.href,product_id:a.id});
+  if(row){seen.add(a.id);out.push(row)}
  }
- return records;
+ return out;
 }
