@@ -52,3 +52,15 @@ test('continuation cards are deduplicated and re-ranked by budget across both ba
  assert.deepEqual(merge(previous,incoming,'price_desc').map(x=>[x.id,x.price]),[['new',499],['tie',470],['mid',470],['low',50]]);
  assert.ok(jsx.includes('mergeListingCards(previous,cards,d.listing_page?.sort)'));
 });
+
+test('Delta cards show sourced facts and omit fields absent from the listing',()=>{
+ const start=jsx.indexOf('function deltaListingFields(');
+ const end=jsx.indexOf('function DeltaProductCard(',start);
+ const fields=new Function(jsx.slice(start,end)+';return deltaListingFields')();
+ assert.deepEqual(fields({server:'苹果QQ',delta_attributes:{total_assets:'201M',hafcoins:'5413W',operation_level:'60',operator_skin_count:0}},null),
+  [['登录方式','苹果QQ'],['总资产','201M'],['哈夫币','5413W'],['行动等级','60'],['干员外观',0]]);
+ assert.deepEqual(fields({},null),[]);
+ assert.ok(jsx.includes('onVerify={()=>verifyLead(x)}'));
+ assert.ok(jsx.includes('className="diagnostics deltaDiagnostics"'));
+ assert.ok(css.includes('.cards.deltaCards'));
+});

@@ -36,6 +36,36 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Verify the expanded 1000 yuan Delta search
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const url='https://gamepilot-ai.zqsanjingshou.workers.dev/api/search';
+          const query='三角洲1000元以内的账号';
+          let data,items,near,withFacts;
+          for(let attempt=0;attempt<3;attempt++){
+            const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({query,disable_brave:true}),signal:AbortSignal.timeout(40000)});
+            if(!response.ok)throw Error('1000 yuan search HTTP '+response.status);
+            data=await response.json();
+            items=data.items||[];
+            near=items.filter(x=>x.price>=700);
+            withFacts=near.filter(x=>Object.entries(x.delta_attributes||{}).some(([key,value])=>key!=='realname'&&value!=null));
+            if(items.length>=120&&near.length>=20&&withFacts.length>=10)break;
+            if(data.trace?.some(x=>[403,429].includes(x.result?.http_status)))break;
+            if(attempt<2)await new Promise(resolve=>setTimeout(resolve,2200));
+          }
+          console.log('DELTA_1000_PRODUCTION',JSON.stringify({total:items.length,near:near.length,with_facts:withFacts.length,
+            prices:items.slice(0,8).map(x=>x.price),sources:[...new Set(items.map(x=>x.platform))],
+            sample:withFacts.slice(0,2).map(x=>({price:x.price,url:x.url,fields:x.delta_attributes})),
+            source_errors:data.trace?.filter(t=>t.result?.http_status>=400).map(t=>[t.result.bucket,t.result.page,t.result.http_status])}));
+          if(items.length<120||near.length<20||withFacts.length<10||new Set(items.map(x=>x.id)).size!==items.length||
+             items.some((x,i)=>!Number.isFinite(x.price)||x.price<=0||x.price>1000||!x.price_evidence||(i>0&&items[i-1].price<x.price))){
+            throw Error('1000 yuan coverage, listing evidence, or ranking did not pass');
+          }
+          NODE
+
       - name: Verify deployed Delta account search and pagination
         timeout-minutes: 2
         shell: bash

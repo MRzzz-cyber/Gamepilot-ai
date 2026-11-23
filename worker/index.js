@@ -556,6 +556,26 @@ async function browserDiscoverCategory(category,game,env){
 const isDeltaGame=name=>name==='三角洲'||name==='三角洲行动';
 const sameListingGame=(a,b)=>!!a&&(a===b||isDeltaGame(a)&&isDeltaGame(b));
 
+function deltaListingAttributes(title){
+ const text=String(title||'').replace(/\s+/g,' ');
+ const value=re=>text.match(re)?.[1]?.replace(/\s+/g,'').toUpperCase()??null;
+ const realname=/(?:不可二次实名|不可二改|不能二次实名|无二次实名)/.test(text)?false:
+  /(?:可二次实名|支持二次实名|可二改)/.test(text)?true:null;
+ return {
+  total_assets:value(/总资产\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:亿|万|[MBKW]))/i)||
+   value(/(\d+(?:\.\d+)?\s*(?:亿|万|[MBKW]))\s*总资产/i),
+  hafcoins:value(/哈夫币\s*[:：]?\s*(\d+(?:\.\d+)?\s*(?:亿|万|[MBKW]))/i)||
+   value(/(\d+(?:\.\d+)?\s*(?:亿|万|[MBKW]))\s*哈夫币/i),
+  operation_level:value(/(?:行动|烽火(?:地带)?)等级\s*[:：]?\s*(\d{1,3})(?!\d)/),
+  warfare_level:value(/(?:全面)?战场等级\s*[:：]?\s*(\d{1,3})(?!\d)/),
+  operation_rank:value(/烽火(?:地带)?段位\s*[:：]?\s*((?:青铜|白银|黄金|铂金|钻石|黑鹰|巅峰)[0-9ⅠⅡⅢⅣⅤ]*)/),
+  melee_count:value(/(?:(?:传说近战|近战传说|近战)(?:皮肤)?(?:数|数量)?)\s*[:：]?\s*(\d{1,3})(?!\d)/),
+  operator_skin_count:value(/干员(?:外观|皮肤)(?:数|数量)?\s*[:：]?\s*(\d{1,3})(?!\d)/),
+  weapon_skin_count:value(/(?:枪皮|枪械(?:外观|皮肤))(?:数|数量)?\s*[:：]?\s*(\d{1,4})(?!\d)/),
+  realname
+ };
+}
+
 // Official 盼之账号 SSR listing cards.
 function pzdsCategoryCards(html,game){
  const source=String(html||''),leads=new Map();
@@ -584,7 +604,7 @@ function pzdsCategoryCards(html,game){
   const realname=/不可二次实名|不支持二次实名|不可二改/.test(plain)?false:/可二次实名|支持二次实名|可二改/.test(plain)?true:null;
   const skins=Number((title+' '+plain).match(/皮肤(?:数量|数)?\s*(\d{2,4})/)?.[1])||null;
   const heroes=Number((title+' '+plain).match(/英雄(?:数量|数)?\s*(\d{2,4})/)?.[1])||null;
-  leads.set(id,{id:'pzds.com:'+id,game:game.name,platform:'盼之账号',url:'https://www.pzds.com/goodsDetails/'+id+'/6',title:name+' '+(title||'账号 '+id),description:'盼之账号'+name+'官方商品列表 '+[server,realname===true?'可二次实名':realname===false?'不可二次实名':null].filter(Boolean).join(' '),server,price,price_evidence:price!=null?'pzds_category_visible_price':'unknown',price_source_label:price!=null?'盼之账号官方商品列表标价（非实时）':'列表未取到价格',status:'unverified',game_confirmed:true,identity_pending:false,skins,heroes,realname,verification:'公开分类页商品卡片；详情和在售状态仍需核验',discovered_at:new Date().toISOString(),kind:delta?'paged_category_lead':'category_lead',match_score:45,match_reasons:[]});
+  leads.set(id,{id:'pzds.com:'+id,game:game.name,platform:'盼之账号',url:'https://www.pzds.com/goodsDetails/'+id+'/6',title:name+' '+(title||'账号 '+id),delta_attributes:delta?deltaListingAttributes(titleAttr||title):null,description:'盼之账号'+name+'官方商品列表 '+[server,realname===true?'可二次实名':realname===false?'不可二次实名':null].filter(Boolean).join(' '),server,price,price_evidence:price!=null?'pzds_category_visible_price':'unknown',price_source_label:price!=null?'盼之账号官方商品列表标价（非实时）':'列表未取到价格',status:'unverified',game_confirmed:true,identity_pending:false,skins,heroes,realname,verification:'公开分类页商品卡片；详情和在售状态仍需核验',discovered_at:new Date().toISOString(),kind:delta?'paged_category_lead':'category_lead',match_score:45,match_reasons:[]});
   if(leads.size>=50)break;
  }
  return [...leads.values()];
@@ -638,7 +658,7 @@ function taoListingCards(html,game){
   const end=Math.min(starts[i+1]?.index??html.length,card.index+5500);
   const section=html.slice(card.index+card[0].length,end);
   const titleBlock=section.match(/<div class=["']line-2 title["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]||'';
-  const title=decodeEntities((titleBlock.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1]||'').replace(/<[^>]*>/g,'')).trim().slice(0,170);
+  const title=decodeEntities((titleBlock.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1]||'').replace(/<[^>]*>/g,'')).trim();
   const amount=section.match(/<div class=["']price["'][^>]*>\s*[￥¥]\s*<span[^>]*>\s*([\d,]+(?:\.\d{1,2})?)\s*<\/span>/i)?.[1];
   const price=Number(amount?.replace(/,/g,''));
   if(!titleBlock.includes('href="'+path+'"')&&!titleBlock.includes("href='"+path+"'"))continue;
@@ -647,11 +667,12 @@ function taoListingCards(html,game){
   if(/上号充值|代充续充|已售出|已下架/.test(titleBlock))continue;
   const sub=section.match(/<div class=["']line-1 sub["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]||'';
   const server=decodeEntities(sub.replace(/<[^>]*>/g,'')).split('|')[0].trim()||null;
+  const deltaAttributes=deltaListingAttributes(title);
   results.set(id,{id:'taoshouyou.com:'+id,game:game.name,platform:'淘手游',
-   url:'https://www.taoshouyou.com'+path,title,description:'三角洲行动 · 淘手游商品列表',
+   url:'https://www.taoshouyou.com'+path,title:title.slice(0,240),delta_attributes:deltaAttributes,description:'三角洲行动 · 淘手游商品列表',
    server,price,price_evidence:'tao_category_visible_price',price_source_label:'淘手游列表标价',
    status:'unverified',game_confirmed:true,kind:'paged_category_lead',
-   realname:null,skins:null,heroes:null,verification:'源站列表标价，详情和在售状态待核验'});
+   realname:deltaAttributes.realname,skins:null,heroes:null,verification:'源站列表标价，详情和在售状态待核验'});
  }
  return {items:[...results.values()],parsed};
 }
@@ -697,58 +718,90 @@ function validTaoCursor(cursor,budget,round){
  const buckets=taoPriceBuckets(budget);
  return Array.isArray(cursor)&&cursor.length>0&&cursor.length<=buckets.length&&
   new Set(cursor.map(x=>x?.bucket)).size===cursor.length&&cursor.every(x=>
-   buckets.includes(x?.bucket)&&Number.isSafeInteger(x.page)&&x.page>=1&&x.page<=round);
+   buckets.includes(x?.bucket)&&Number.isSafeInteger(x.page)&&x.page>=1&&x.page<=round&&
+   (x.read_pages===undefined||(Array.isArray(x.read_pages)&&x.read_pages.length<=4&&
+    x.read_pages.every(page=>Number.isSafeInteger(page)&&page>x.page&&page<=x.page+4))));
 }
 
 async function taoDeltaListings(game,req,round,cursor){
  const buckets=taoPriceBuckets(req.budget);
  const closestBucket=buckets.at(-1);
  const initial=round===1;
+ const wideSearch=initial&&req.budget>=750&&req.budget<=5000&&closestBucket>=4;
+ const target=wideSearch?150:DELTA_INITIAL_PRICED_TARGET;
+ const nearBudget=Math.ceil(req.budget*0.7);
  const maxRounds=initial?DELTA_INITIAL_MAX_ROUNDS:1;
  const deadline=Date.now()+(initial?DELTA_INITIAL_TIMEOUT_MS:8500);
  const firstPages=initial?buckets.map(bucket=>({bucket,page:1})):cursor;
  const pending=new Map(firstPages.map(stream=>[stream.bucket,stream.page]));
+ const readAhead=new Map(firstPages.filter(x=>x.read_pages?.length).map(x=>[x.bucket,new Set(x.read_pages)]));
  const paused=new Set(),failedAttempts=new Map();
  const items=new Map(),pageCounts={},trace=[];
- let rounds=0,successfulPages=0,pricedMatches=0,closestBucketMatched=false;
+ let rounds=0,successfulPages=0,pricedMatches=0,nearMatches=0,closestBucketMatched=false;
+ function addSourcePage(bucket,result){
+  trace.push(result.trace);
+  if(!result.items)return;
+  successfulPages++;
+  if(result.pageCount!=null)pageCounts[bucket]=result.pageCount;
+  for(const item of result.items){
+   if(items.has(item.id))continue;
+   items.set(item.id,item);
+   if(passesSearchFilters(item,req,evaluateCandidate(item,req))){
+    pricedMatches++;
+    if(item.price>=nearBudget)nearMatches++;
+    if(bucket===closestBucket)closestBucketMatched=true;
+   }
+  }
+ }
+ function advance(bucket,page){
+  const read=readAhead.get(bucket);
+  while(page&&read?.delete(page))page++;
+  if(page)pending.set(bucket,page);
+  else pending.delete(bucket);
+ }
+ if(wideSearch){
+  // Read several public pages in the closest tier even when its first page is temporarily unavailable.
+  const pages=await Promise.all([1,2,3,4,5].map(page=>taoDeltaPage(game,closestBucket,page,6500)));
+  const read=new Set();
+  for(const [i,result] of pages.entries()){
+   addSourcePage(closestBucket,result);
+   if(i>0&&result.items&&result.nextPage)read.add(i+1);
+  }
+  readAhead.set(closestBucket,read);
+  if(pages[0].items)advance(closestBucket,pages[0].nextPage);
+  if(pages.some(x=>[403,429].includes(x.trace.result.http_status)))paused.add(closestBucket);
+ }
  while(rounds<maxRounds){
-  const closestBucketPending=pending.has(closestBucket)&&!paused.has(closestBucket);
-  if(pricedMatches>=DELTA_INITIAL_PRICED_TARGET&&(closestBucketMatched||!closestBucketPending))break;
+  const closestPending=pending.has(closestBucket)&&!paused.has(closestBucket);
+  if(pricedMatches>=target&&(!closestPending||(wideSearch?nearMatches>=24:closestBucketMatched)))break;
   const active=[...pending].filter(([bucket])=>!paused.has(bucket)).slice(0,DELTA_INITIAL_MAX_SOURCE_REQUESTS-trace.length);
   const remaining=deadline-Date.now();
   if(!active.length||remaining<=0)break;
   rounds++;
   const pages=await Promise.all(active.map(([bucket,page])=>taoDeltaPage(game,bucket,page,Math.min(8500,remaining))));
-  for(const [index,result] of pages.entries()){
-   const [bucket]=active[index];
-   trace.push(result.trace);
-   if(!result.items){
-    const info=result.trace.result;
-    const transient=info.status==='fetch_failed'||[500,502,503,504].includes(info.http_status);
-    const attempts=(failedAttempts.get(bucket)||0)+1;
-    failedAttempts.set(bucket,attempts);
-    if(!transient||attempts>=3)paused.add(bucket);
+  for(const [i,result] of pages.entries()){
+   const [bucket]=active[i];
+   addSourcePage(bucket,result);
+   if(result.items){
+    failedAttempts.delete(bucket);
+    advance(bucket,result.nextPage);
     continue;
    }
-   successfulPages++;
-   failedAttempts.delete(bucket);
-   if(result.nextPage)pending.set(bucket,result.nextPage);
-   else pending.delete(bucket);
-   if(result.pageCount!=null)pageCounts[bucket]=result.pageCount;
-   for(const item of result.items){
-    if(items.has(item.id))continue;
-    items.set(item.id,item);
-    if(passesSearchFilters(item,req,evaluateCandidate(item,req))){
-     pricedMatches++;
-     if(bucket===closestBucket)closestBucketMatched=true;
-    }
-   }
+   const info=result.trace.result;
+   const transient=info.status==='fetch_failed'||[500,502,503,504].includes(info.http_status);
+   const attempts=(failedAttempts.get(bucket)||0)+1;
+   failedAttempts.set(bucket,attempts);
+   if(!transient||attempts>=3)paused.add(bucket);
   }
  }
  if(!successfulPages)return {trace,items:[],catalogue:null};
- const nextCursor=[...pending].map(([bucket,page])=>({bucket,page}));
+ const nextCursor=[...pending].map(([bucket,page])=>{
+  const readPages=[...(readAhead.get(bucket)||[])].filter(value=>value>page);
+  return readPages.length?{bucket,page,read_pages:readPages}:{bucket,page};
+ });
+ const nextPage=nextCursor.length?Math.max(round+Math.max(1,rounds),...nextCursor.map(x=>x.page)):null;
  const sourcePages=Object.keys(pageCounts).length===buckets.length?Object.values(pageCounts).reduce((sum,n)=>sum+n,0):null;
- return {trace,items:[...items.values()],catalogue:{source:'淘手游',page:round,next_page:nextCursor.length?round+rounds:null,
+ return {trace,items:[...items.values()],catalogue:{source:'淘手游',page:round,next_page:nextPage,
   next_cursor:nextCursor,source_pages:sourcePages,source_page_counts:pageCounts,source_bucket_count:buckets.length}};
 }
 
@@ -994,7 +1047,7 @@ async function agentSearchListings(query,args,env,options={}){
    const sourceLabel=detailPrice?'商品详情页':['gmmsj_category_visible_price','pzds_category_visible_price','tao_category_visible_price'].includes(x.price_evidence)?'源站商品列表（非实时）':'搜索索引（非实时）';
    const full=(x.title||'')+' '+(x.description||'');
    return {id:x.id,game:game.name,title:x.title,description:x.description,platform:x.platform,url:x.url,
-    price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,detail_summary:x.detail_summary||null,detail_listing_id:x.detail_listing_id||null,
+    price:x.price,price_evidence:x.price_evidence,price_source_label:x.price_source_label,delta_attributes:x.delta_attributes||null,detail_summary:x.detail_summary||null,detail_listing_id:x.detail_listing_id||null,
     price_audit:{amount:x.price,currency:'CNY',source:sourceLabel,is_realtime:false,confidence:detailPrice?'medium':'low',verified_at:detailPrice?x.checked_at:null},
     status:x.status,detail_check:x.detail_check,server:x.server,skins:x.skins,heroes:x.heroes,realname:x.realname,detail_attributes:x.detail_attributes||null,
     match_score:x.requirement_evaluation?.score??x.match_score,requirement_evaluation:x.requirement_evaluation,
@@ -1094,7 +1147,7 @@ async function watchPrice(raw,env){
  if(env.PRICE_HISTORY&&current){try{history.push(current);await env.PRICE_HISTORY.put(key,JSON.stringify(history.slice(-30)),{expirationTtl:60*60*24*90})}catch{return {url:u.href,current,previous,change,history_saved:false,warning:'历史价格保存失败',status:checked.status}}}
  return {url:u.href,current,previous,change,history_saved:!!env.PRICE_HISTORY&&!!current,history_points:history.length,availability:checked.status,updated_at:checked.updated_at||null,warning:!validPrice?'当前详情页无可信价格，或商品已售出/过期；不生成价格变化':!env.PRICE_HISTORY?'未绑定 PRICE_HISTORY KV，当前仅支持即时价格检查':'历史价格为此前检查时的快照，并非连续实时监控'};
 }
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-delta-closest-budget-first',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
+export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/api/health'&&request.method==='GET')return json({ok:true,build:'2026-11-23-delta-wide-budget-cards',browser_configured:typeof env.BROWSER?.quickAction==='function',search_configured:!!env.BRAVE_SEARCH_API_KEY,model_configured:!!env.OPENROUTER_API_KEY,architecture:'canonical-intent + progressive-search + verified-evidence',note:'配置状态不代表搜索源站实时可访问'});if(url.pathname==='/api/models'&&request.method==='GET')return json(await listModels(env));if(url.pathname==='/api/universal-smoke'&&request.method==='GET'){
  const cases=[
   ['帮我找一个鸣潮账号 2000元以内','鸣潮'],
   ['搜索《崩坏：星穹铁道》账号 1500元以内','崩坏：星穹铁道'],
