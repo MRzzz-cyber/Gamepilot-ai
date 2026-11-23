@@ -21,6 +21,17 @@ for(let n=start;n<start+maxPages;n++){
    console.log('PZDS_SCRIPTS',JSON.stringify(scriptUrls.slice(-18)));
    const nuxtAt=html.indexOf('window.__NUXT__');
    console.log('PZDS_NUXT',JSON.stringify(nuxtAt>=0?html.slice(nuxtAt,nuxtAt+900):'missing'));
+   if(process.env.INSPECT_ASSETS==='true'){
+    for(const asset of scriptUrls.slice(-5)){
+     try{
+      const res=await fetch(asset,{signal:AbortSignal.timeout(12000)});
+      const code=(await res.text()).slice(0,2500000);
+      const hits=[...code.matchAll(/goodsList|goodsListV2|currentPage|pageSize|goodsNo|goodsSearch|goods\/list|sieveList|sieve_list/gi)].slice(0,5).map(m=>code.slice(Math.max(0,m.index-140),Math.min(code.length,m.index+220)));
+      console.log('PZDS_JS_PROBE',JSON.stringify({asset,size:code.length,hits}));
+     }catch(e){console.log('PZDS_JS_ERROR',asset,String(e?.name||'error'))}
+    }
+   }
+
   }
   rows=parsePzdsDeltaListing(html);
   const fingerprint=rows.map(x=>x.id).sort().join('|');
