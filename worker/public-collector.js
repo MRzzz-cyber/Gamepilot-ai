@@ -55,7 +55,7 @@ function defaultDeltaSources(start,cap,includeDD373=false){
  const low='https://www.dd373.com/s-gp1gaj-f4wdcm-sxbrka-0-0-0-04q04w-0-0-0-0-0-1-0-0-0.html?MaxPrice=200.00&MinPrice=0.00';
  const mid='https://www.dd373.com/s-gp1gaj-f4wdcm-sxbrka-0-0-0-04q04w-0-0-0-0-0-1-0-0-0.html?MaxPrice=500.00&MinPrice=200.00';
  const pages=(base)=>Array.from({length:cap},(_,i)=>base.replace(/-(\d+)-0-0-0\.html/, '-'+(start+i)+'-0-0-0.html'));
- const sources=[{name:'pzds_delta_391',pages:Array.from({length:cap},(_,i)=>'https://www.pzds.com/goodsList/391/6?currentPage='+(start+i))}];
+ const sources=[{name:'pzds_delta_391',pages:Array.from({length:cap},(_,i)=>'https://www.pzds.com/goodsList/391/6?page='+(start+i))}];
  if(includeDD373)sources.push({name:'dd373_delta_0_200',pages:pages(low)},{name:'dd373_delta_200_500',pages:pages(mid)});
  return sources;
 }
