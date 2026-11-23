@@ -7,7 +7,7 @@ const start=Math.min(Math.max(Number(process.env.START_PAGE||1),1),1000);
 const products=new Map(),pages=[],fetchedAt=new Date().toISOString();
 let repeated=0,priorFingerprint='';
 for(let n=start;n<start+maxPages;n++){
- const url='https://www.pzds.com/goodsList/391/6?currentPage='+n;
+ const url='https://www.pzds.com/goodsList/391/6?page='+n;
  let status=0,rows=[],error=null,pageMarker=null;
  try{
   const res=await fetch(url,{signal:AbortSignal.timeout(15000),headers:{Accept:'text/html','User-Agent':'GamePilotPublicIndexer/1.0'}});
@@ -21,7 +21,7 @@ for(let n=start;n<start+maxPages;n++){
    console.log('PZDS_SCRIPTS',JSON.stringify(scriptUrls.slice(-18)));
    const nuxtAt=html.indexOf('window.__NUXT__');
    console.log('PZDS_NUXT',JSON.stringify(nuxtAt>=0?html.slice(nuxtAt,nuxtAt+900):'missing'));
-   if(process.env.INSPECT_ASSETS==='true'){
+   if(false){
     for(const asset of scriptUrls.slice(-5)){
      try{
       const res=await fetch(asset,{signal:AbortSignal.timeout(12000)});
